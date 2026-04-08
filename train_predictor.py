@@ -28,6 +28,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
 from data_loader import SpatioTemporalDataset, load_nyc_real_graph_features
+from predictor_normalization import (
+    build_normalization_stats,
+    denormalize_count_values,
+    denormalize_speed_values,
+    normalize_node_features,
+    normalize_speed_features,
+    serialize_normalization_stats,
+)
 from stgat_model import STGATPredictor
 
 
@@ -137,7 +145,7 @@ def evaluate_loader(
     losses = {"demand": 0.0, "supply": 0.0, "speed": 0.0, "total": 0.0}
     n_batches = 0
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for batch in loader:
             node_seq = batch["node_seq"].to(device, non_blocking=non_blocking)
             speed_seq = batch["speed_seq"].to(device, non_blocking=non_blocking)
@@ -162,6 +170,87 @@ def evaluate_loader(
     for key in losses:
         losses[key] /= max(n_batches, 1)
     return losses
+
+
+def evaluate_loader_raw_metrics(
+    model: nn.Module,
+    loader: DataLoader,
+    *,
+    device: torch.device,
+    non_blocking: bool,
+    amp_enabled: bool,
+    amp_dtype: torch.dtype | None,
+    normalization_stats: dict | None,
+) -> dict[str, dict[str, float]]:
+    accum = {
+        "demand": {"se": 0.0, "ae": 0.0, "count": 0},
+        "supply": {"se": 0.0, "ae": 0.0, "count": 0},
+        "speed": {"se": 0.0, "ae": 0.0, "count": 0},
+    }
+
+    with torch.inference_mode():
+        for batch in loader:
+            node_seq = batch["node_seq"].to(device, non_blocking=non_blocking)
+            speed_seq = batch["speed_seq"].to(device, non_blocking=non_blocking)
+            d_tgt = batch["demand_target"].to(device, non_blocking=non_blocking)
+            c_tgt = batch["supply_target"].to(device, non_blocking=non_blocking)
+            v_tgt = batch["speed_target"].to(device, non_blocking=non_blocking)
+
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
+                d_pred, c_pred, v_pred = model(node_seq, speed_seq)
+
+            d_pred_raw = denormalize_count_values(
+                d_pred.detach().cpu().numpy(),
+                normalization_stats,
+                task="demand",
+            )
+            d_tgt_raw = denormalize_count_values(
+                d_tgt.detach().cpu().numpy(),
+                normalization_stats,
+                task="demand",
+            )
+            c_pred_raw = denormalize_count_values(
+                c_pred.detach().cpu().numpy(),
+                normalization_stats,
+                task="supply",
+            )
+            c_tgt_raw = denormalize_count_values(
+                c_tgt.detach().cpu().numpy(),
+                normalization_stats,
+                task="supply",
+            )
+            v_pred_raw = denormalize_speed_values(
+                v_pred.detach().cpu().numpy(),
+                normalization_stats,
+                edge_axis=1,
+            )
+            v_tgt_raw = denormalize_speed_values(
+                v_tgt.detach().cpu().numpy(),
+                normalization_stats,
+                edge_axis=1,
+            )
+
+            for name, pred_raw, tgt_raw in (
+                ("demand", d_pred_raw, d_tgt_raw),
+                ("supply", c_pred_raw, c_tgt_raw),
+                ("speed", v_pred_raw, v_tgt_raw),
+            ):
+                diff = pred_raw.astype(np.float64) - tgt_raw.astype(np.float64)
+                accum[name]["se"] += float(np.square(diff).sum())
+                accum[name]["ae"] += float(np.abs(diff).sum())
+                accum[name]["count"] += int(diff.size)
+
+    metrics: dict[str, dict[str, float]] = {}
+    for name, values in accum.items():
+        count = max(values["count"], 1)
+        mse_value = values["se"] / count
+        mae_value = values["ae"] / count
+        metrics[name] = {
+            "mse": float(mse_value),
+            "rmse": float(np.sqrt(mse_value)),
+            "mae": float(mae_value),
+        }
+    return metrics
 
 
 def train(args: argparse.Namespace) -> None:
@@ -200,14 +289,21 @@ def train(args: argparse.Namespace) -> None:
     if time_feature_names:
         print(f"  時間特徵: {', '.join(time_feature_names)}")
 
+    time_meta = load_time_meta_for_training(args.data_dir, t_steps)
+    split_labels = assign_calendar_split(time_meta)
+    split_indices = build_monthly_split_indices(time_meta, args.hist_len, args.pred_horizon)
+    train_time_mask = (split_labels == "train").to_numpy()
+    normalization_stats = build_normalization_stats(node_feat, edge_speeds, train_time_mask)
+    node_feat = normalize_node_features(node_feat, normalization_stats)
+    edge_speeds = normalize_speed_features(edge_speeds, normalization_stats, edge_axis=1)
+    print("  正規化: D/C=log1p+zscore, V=per-edge zscore (僅用 train split 統計量)")
+
     # Dataset
     full_ds = SpatioTemporalDataset(
         node_feat, edge_speeds,
         hist_len=args.hist_len,
         pred_horizon=args.pred_horizon,
     )
-    time_meta = load_time_meta_for_training(args.data_dir, t_steps)
-    split_indices = build_monthly_split_indices(time_meta, args.hist_len, args.pred_horizon)
     train_ds = Subset(full_ds, split_indices["train"])
     val_ds = Subset(full_ds, split_indices["val"])
     test_ds = Subset(full_ds, split_indices["test"])
@@ -253,6 +349,16 @@ def train(args: argparse.Namespace) -> None:
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  模型參數量: {total_params:,}")
 
+    if args.compile:
+        if hasattr(torch, "compile"):
+            print(f"  啟用 torch.compile | mode={args.compile_mode}")
+            try:
+                model = torch.compile(model, mode=args.compile_mode)
+            except Exception as exc:
+                print(f"  torch.compile 啟用失敗，改用 eager mode: {exc}")
+        else:
+            print("  目前 torch 版本不支援 torch.compile，將改用 eager mode")
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=10,
@@ -266,7 +372,8 @@ def train(args: argparse.Namespace) -> None:
     best_val_loss = float("inf")
 
     lam1, lam2, lam3 = args.lambda1, args.lambda2, args.lambda3
-    print(f"\n開始訓練 | Epochs={args.epochs} | λ=({lam1},{lam2},{lam3})")
+    val_interval = max(args.val_interval, 1)
+    print(f"\n開始訓練 | Epochs={args.epochs} | λ=({lam1},{lam2},{lam3}) | val_interval={val_interval}")
     print("-" * 70)
 
     t0 = time.time()
@@ -292,7 +399,7 @@ def train(args: argparse.Namespace) -> None:
                 loss_v = mse(v_pred, v_tgt)
                 loss = lam1 * loss_d + lam2 * loss_c + lam3 * loss_v
 
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
@@ -307,21 +414,24 @@ def train(args: argparse.Namespace) -> None:
             train_losses[k] /= max(n_batches, 1)
 
         # ── val ──
-        model.eval()
-        val_losses = evaluate_loader(
-            model,
-            val_loader,
-            device=device,
-            non_blocking=non_blocking,
-            amp_enabled=amp_enabled,
-            amp_dtype=amp_dtype,
-            mse=mse,
-            lam1=lam1,
-            lam2=lam2,
-            lam3=lam3,
-        )
-
-        scheduler.step(val_losses["total"])
+        should_validate = (epoch % val_interval == 0) or (epoch == args.epochs)
+        if should_validate:
+            model.eval()
+            val_losses = evaluate_loader(
+                model,
+                val_loader,
+                device=device,
+                non_blocking=non_blocking,
+                amp_enabled=amp_enabled,
+                amp_dtype=amp_dtype,
+                mse=mse,
+                lam1=lam1,
+                lam2=lam2,
+                lam3=lam3,
+            )
+            scheduler.step(val_losses["total"])
+        else:
+            val_losses = {"demand": None, "supply": None, "speed": None, "total": None}
 
         # ── 記錄 ──
         elapsed = time.time() - t0
@@ -331,26 +441,31 @@ def train(args: argparse.Namespace) -> None:
             "train_demand": round(train_losses["demand"], 5),
             "train_supply": round(train_losses["supply"], 5),
             "train_speed": round(train_losses["speed"], 5),
-            "val_total": round(val_losses["total"], 5),
-            "val_demand": round(val_losses["demand"], 5),
-            "val_supply": round(val_losses["supply"], 5),
-            "val_speed": round(val_losses["speed"], 5),
+            "val_total": round(val_losses["total"], 5) if val_losses["total"] is not None else None,
+            "val_demand": round(val_losses["demand"], 5) if val_losses["demand"] is not None else None,
+            "val_supply": round(val_losses["supply"], 5) if val_losses["supply"] is not None else None,
+            "val_speed": round(val_losses["speed"], 5) if val_losses["speed"] is not None else None,
             "lr": optimizer.param_groups[0]["lr"],
             "elapsed": round(elapsed, 1),
         }
         history.append(record)
 
+        val_msg = (
+            f"Val={val_losses['total']:.4f}"
+            if val_losses["total"] is not None
+            else "Val=skip"
+        )
         if epoch % args.log_interval == 0 or epoch == 1:
             print(
                 f"[Ep {epoch:>4d}]  "
                 f"Train={train_losses['total']:.4f} "
                 f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f} V={train_losses['speed']:.3f})  "
-                f"Val={val_losses['total']:.4f}  "
+                f"{val_msg}  "
                 f"({elapsed:.0f}s)"
             )
 
         # ── 儲存最佳 ──
-        if val_losses["total"] < best_val_loss:
+        if val_losses["total"] is not None and val_losses["total"] < best_val_loss:
             best_val_loss = val_losses["total"]
             torch.save(model.state_dict(), log_dir / "stgat_best.pt")
 
@@ -359,7 +474,11 @@ def train(args: argparse.Namespace) -> None:
     print(f"\n訓練完成 | Best Val Loss = {best_val_loss:.5f}")
     print(f"模型已儲存至 {log_dir / 'stgat_best.pt'}")
 
-    best_state = torch.load(log_dir / "stgat_best.pt", map_location=device)
+    best_state = torch.load(
+        log_dir / "stgat_best.pt",
+        map_location=device,
+        weights_only=True,
+    )
     model.load_state_dict(best_state)
     model.eval()
     test_losses = evaluate_loader(
@@ -374,10 +493,25 @@ def train(args: argparse.Namespace) -> None:
         lam2=lam2,
         lam3=lam3,
     )
+    test_raw_metrics = evaluate_loader_raw_metrics(
+        model,
+        test_loader,
+        device=device,
+        non_blocking=non_blocking,
+        amp_enabled=amp_enabled,
+        amp_dtype=amp_dtype,
+        normalization_stats=normalization_stats,
+    )
     print(
         "最終 Test="
         f"{test_losses['total']:.4f} "
         f"(D={test_losses['demand']:.3f} C={test_losses['supply']:.3f} V={test_losses['speed']:.3f})"
+    )
+    print(
+        "原始尺度 Test RMSE="
+        f"D:{test_raw_metrics['demand']['rmse']:.3f} "
+        f"C:{test_raw_metrics['supply']['rmse']:.3f} "
+        f"V:{test_raw_metrics['speed']['rmse']:.3f}"
     )
 
     # 儲存訓練資料元資訊（供 pipeline 使用）
@@ -397,6 +531,8 @@ def train(args: argparse.Namespace) -> None:
         "node_feat_dim": node_feat_dim,
         "use_time_features": bool(time_feature_names),
         "time_feature_names": time_feature_names,
+        "loss_space": "normalized",
+        "normalization": serialize_normalization_stats(normalization_stats),
         "split_strategy": "per_month_day_1_20_train_21_24_val_25_plus_test",
         "split_counts": {
             "train": len(train_ds),
@@ -414,7 +550,16 @@ def train(args: argparse.Namespace) -> None:
     print(f"訓練日誌已儲存至 {log_dir / 'predictor_log.json'}")
 
     with open(log_dir / "predictor_test_metrics.json", "w", encoding="utf-8") as f:
-        json.dump(test_losses, f, ensure_ascii=False, indent=2)
+        json.dump(
+            {
+                "loss_space": "normalized",
+                "normalized_loss": test_losses,
+                "raw_metrics": test_raw_metrics,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
     print(f"測試指標已儲存至 {log_dir / 'predictor_test_metrics.json'}")
 
 
@@ -457,9 +602,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--lambda1", type=float, default=0.4, help="需求損失權重")
-    p.add_argument("--lambda2", type=float, default=0.3, help="空車損失權重")
-    p.add_argument("--lambda3", type=float, default=0.3, help="速度損失權重")
+    p.add_argument("--lambda1", type=float, default=1.0, help="需求損失權重")
+    p.add_argument("--lambda2", type=float, default=1.0, help="空車損失權重")
+    p.add_argument("--lambda3", type=float, default=1.0, help="速度損失權重")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="auto")
     p.add_argument(
@@ -477,6 +622,21 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--log-dir", type=str, default="runs")
     p.add_argument("--log-interval", type=int, default=5)
+    p.add_argument(
+        "--val-interval",
+        type=int,
+        default=1,
+        help="每隔多少個 epoch 跑一次 validation；最後一個 epoch 會強制驗證",
+    )
+
+    p.add_argument("--compile", action="store_true", help="啟用 torch.compile 加速")
+    p.add_argument(
+        "--compile-mode",
+        type=str,
+        default="reduce-overhead",
+        choices=["default", "reduce-overhead", "max-autotune"],
+        help="torch.compile 的 mode",
+    )
 
     return p.parse_args()
 

@@ -30,14 +30,15 @@ import torch.nn.functional as F
 #  工具函式
 # ════════════════════════════════════════════════════════════════
 
-def build_line_graph_adj(edge_index: torch.Tensor) -> torch.Tensor:
+def build_line_graph_edge_index(edge_index: torch.Tensor) -> torch.Tensor:
     """
-    從邊列表建構線圖 (line graph) 鄰接矩陣。
-    兩條有向邊 (i,j) 與 (u,v) 相鄰 iff j == u（物理連續）。
+    從邊列表建構線圖 (line graph) 邊列表。
+    兩條有向邊 e_i=(u,v) 與 e_j=(v,w) 相鄰，表示線圖中的 i <- j。
     """
     dst = edge_index[:, 1]  # (|E|,)
     src = edge_index[:, 0]  # (|E|,)
-    return (dst.unsqueeze(1) == src.unsqueeze(0)).float()
+    recv, send = torch.nonzero(dst.unsqueeze(1) == src.unsqueeze(0), as_tuple=True)
+    return torch.stack([recv, send], dim=0).long()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -189,6 +190,105 @@ class GATLayer(nn.Module):
         return F.elu(out)
 
 
+class SparseGATLayer(nn.Module):
+    """
+    Sparse GAT on an explicit edge list.
+
+    Instead of materializing a dense NxN attention matrix and masking most
+    entries away, this layer only computes attention on real graph neighbors.
+    """
+
+    def __init__(
+        self,
+        in_c: int,
+        d_out: int,
+        num_heads: int = 4,
+        edge_in: int = 0,
+        concat: bool = True,
+    ) -> None:
+        super().__init__()
+        self.num_heads = num_heads
+        self.d_out = d_out
+        self.concat = concat
+        self.has_edge = edge_in > 0
+        total = d_out * num_heads
+
+        self.W_q = nn.Linear(in_c, total, bias=False)
+        self.W_k = nn.Linear(in_c, total, bias=False)
+        self.W_v = nn.Linear(in_c, total, bias=False)
+
+        self.a_q = nn.Parameter(torch.empty(1, 1, num_heads, d_out))
+        self.a_k = nn.Parameter(torch.empty(1, 1, num_heads, d_out))
+        nn.init.xavier_normal_(self.a_q)
+        nn.init.xavier_normal_(self.a_k)
+
+        if self.has_edge:
+            self.W_e = nn.Linear(edge_in, total, bias=False)
+            self.a_e = nn.Parameter(torch.empty(1, 1, num_heads, d_out))
+            nn.init.xavier_normal_(self.a_e)
+
+    def forward(
+        self,
+        h: torch.Tensor,
+        edge_index: torch.Tensor,
+        edge_feat: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """
+        h         : (B, N, C_in)
+        edge_index: (2, L) with [recv, send]
+        edge_feat : (B, L, edge_in) or None
+        return    : (B, N, H*d_out) if concat else (B, N, d_out)
+        """
+        B, N, _ = h.shape
+        H, D = self.num_heads, self.d_out
+        recv = edge_index[0]
+        send = edge_index[1]
+        num_edges = recv.shape[0]
+
+        q = self.W_q(h).view(B, N, H, D)
+        k = self.W_k(h).view(B, N, H, D)
+        v = self.W_v(h).view(B, N, H, D)
+
+        q_recv = q[:, recv]  # (B, L, H, D)
+        k_send = k[:, send]  # (B, L, H, D)
+        scores = (q_recv * self.a_q).sum(-1) + (k_send * self.a_k).sum(-1)
+        if self.has_edge and edge_feat is not None:
+            e = self.W_e(edge_feat).view(B, num_edges, H, D)
+            scores = scores + (e * self.a_e).sum(-1)
+        scores = F.leaky_relu(scores, 0.2).float()
+
+        recv_index = recv.view(1, num_edges, 1).expand(B, num_edges, H)
+        max_scores = torch.full(
+            (B, N, H),
+            -torch.inf,
+            device=h.device,
+            dtype=scores.dtype,
+        )
+        max_scores.scatter_reduce_(1, recv_index, scores, reduce="amax", include_self=True)
+
+        attn_logits = scores - max_scores.gather(1, recv_index)
+        attn_exp = torch.exp(attn_logits)
+        denom = torch.zeros((B, N, H), device=h.device, dtype=attn_exp.dtype)
+        denom.scatter_add_(1, recv_index, attn_exp)
+        alpha = attn_exp / denom.gather(1, recv_index).clamp_min(1e-12)
+        alpha = torch.nan_to_num(alpha, nan=0.0).to(v.dtype)
+
+        messages = alpha.unsqueeze(-1) * v[:, send]
+        out = torch.zeros((B, N, H, D), device=h.device, dtype=messages.dtype)
+        out.scatter_add_(
+            1,
+            recv.view(1, num_edges, 1, 1).expand(B, num_edges, H, D),
+            messages,
+        )
+
+        if self.concat:
+            out = out.reshape(B, N, H * D)
+        else:
+            out = out.mean(dim=2)
+
+        return F.elu(out)
+
+
 # ════════════════════════════════════════════════════════════════
 #  Gated Fusion（Eq. 13-14）
 # ════════════════════════════════════════════════════════════════
@@ -253,7 +353,21 @@ class STGATPredictor(nn.Module):
         adj_with_self = (adj_matrix + torch.eye(N)).clamp(max=1.0)
         self.register_buffer("adj_fixed", adj_with_self)
         self.register_buffer("adj_full", torch.ones(N, N))
-        self.register_buffer("line_adj", build_line_graph_adj(edge_index))
+        fixed_recv, fixed_send = torch.nonzero(adj_with_self > 0, as_tuple=True)
+        self.register_buffer("fixed_edge_index", torch.stack([fixed_recv, fixed_send], dim=0).long())
+        self.register_buffer("line_edge_index", build_line_graph_edge_index(edge_index))
+        edge_lookup = torch.full((N, N), -1, dtype=torch.long)
+        edge_lookup[edge_index[:, 0].long(), edge_index[:, 1].long()] = torch.arange(
+            edge_index.shape[0],
+            dtype=torch.long,
+        )
+        fixed_edge_ids = edge_lookup[fixed_recv, fixed_send]
+        fixed_edge_lengths = torch.zeros(fixed_edge_ids.shape[0], dtype=torch.float32)
+        fixed_has_road = fixed_edge_ids >= 0
+        fixed_edge_lengths[fixed_has_road] = edge_lengths.float()[fixed_edge_ids[fixed_has_road]]
+        self.register_buffer("fixed_edge_ids", fixed_edge_ids)
+        self.register_buffer("fixed_edge_lengths", fixed_edge_lengths)
+        self.register_buffer("fixed_edge_has_road", fixed_has_road)
 
         # ── 自適應鄰接 ──
         self.emb_src = nn.Parameter(torch.randn(N, adaptive_emb) * 0.1)
@@ -271,7 +385,7 @@ class STGATPredictor(nn.Module):
                 GTCN(hidden_dim, hidden_dim, hidden_dim, num_gtcn_layers, kernel_size)
             )
             self.n_gat_fix.append(
-                GATLayer(hidden_dim, d_per_head, num_heads, edge_in=edge_feat_dim, concat=True)
+                SparseGATLayer(hidden_dim, d_per_head, num_heads, edge_in=edge_feat_dim, concat=True)
             )
 
         # ── Node path — adaptive topology ──
@@ -296,7 +410,7 @@ class STGATPredictor(nn.Module):
                 GTCN(hidden_dim, hidden_dim, hidden_dim, num_gtcn_layers, kernel_size)
             )
             self.e_gat.append(
-                GATLayer(hidden_dim, d_per_head, num_heads, edge_in=0, concat=True)
+                SparseGATLayer(hidden_dim, d_per_head, num_heads, concat=True)
             )
 
         # ── 輸出頭 ──
@@ -309,40 +423,46 @@ class STGATPredictor(nn.Module):
     def _adaptive_adj(self) -> torch.Tensor:
         return F.softmax(F.relu(self.emb_src @ self.emb_dst.T), dim=1)
 
-    def _edge_feat_at(self, speed: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def _fixed_edge_feat(self, speed: torch.Tensor) -> torch.Tensor:
         """
         speed : (BT, |E|)  — 每條邊在某時間步的速度
-        return: (BT, N, N, 2) — [road_length, speed]
+        return: (BT, |A_fixed|, 2) — [road_length, speed]
         """
         BT = speed.shape[0]
-        N = self.adj_fixed.shape[0]
-        src, dst = self.edge_index[:, 0], self.edge_index[:, 1]
-        feat = torch.zeros(BT, N, N, 2, device=device)
-        feat[:, src, dst, 0] = self.edge_lengths.unsqueeze(0).expand(BT, -1)
-        feat[:, src, dst, 1] = speed
+        num_fixed_edges = self.fixed_edge_ids.shape[0]
+        feat = torch.zeros(BT, num_fixed_edges, 2, device=speed.device, dtype=speed.dtype)
+        feat[:, :, 0] = self.fixed_edge_lengths.to(speed.dtype).unsqueeze(0)
+        feat[:, self.fixed_edge_has_road, 1] = speed[:, self.fixed_edge_ids[self.fixed_edge_has_road]]
         return feat
 
-    def _run_node_path(
+    def _run_fixed_node_path(
         self,
         node_h: torch.Tensor,
         speed_seq: torch.Tensor,
-        gtcn_list: nn.ModuleList,
-        gat_list: nn.ModuleList,
-        adj: torch.Tensor,
-        use_edge_feat: bool,
     ) -> torch.Tensor:
-        """回傳最後時間步的節點表示 (B, N, hidden_dim)"""
+        """Fixed-topology node path with sparse edge-aware attention."""
         B, N, T, _ = node_h.shape
         x = node_h
-        for gtcn, gat in zip(gtcn_list, gat_list):
+        sp_flat = speed_seq.permute(0, 2, 1).reshape(B * T, -1)
+        edge_feat = self._fixed_edge_feat(sp_flat)
+        for gtcn, gat in zip(self.n_gtcn_fix, self.n_gat_fix):
             x = gtcn(x)                                              # (B, N, T, C)
             x_flat = x.permute(0, 2, 1, 3).reshape(B * T, N, -1)    # (BT, N, C)
-            if use_edge_feat:
-                sp_flat = speed_seq.permute(0, 2, 1).reshape(B * T, -1)
-                ef = self._edge_feat_at(sp_flat, x.device)
-            else:
-                ef = None
-            x_flat = gat(x_flat, adj, ef)                            # (BT, N, C)
+            x_flat = gat(x_flat, self.fixed_edge_index, edge_feat)   # (BT, N, C)
+            x = x_flat.reshape(B, T, N, -1).permute(0, 2, 1, 3)     # (B, N, T, C)
+        return x[:, :, -1, :]                                        # (B, N, C)
+
+    def _run_adaptive_node_path(
+        self,
+        node_h: torch.Tensor,
+    ) -> torch.Tensor:
+        """Adaptive node path that keeps the original dense all-pairs logic."""
+        B, N, T, _ = node_h.shape
+        x = node_h
+        for gtcn, gat in zip(self.n_gtcn_adp, self.n_gat_adp):
+            x = gtcn(x)                                              # (B, N, T, C)
+            x_flat = x.permute(0, 2, 1, 3).reshape(B * T, N, -1)    # (BT, N, C)
+            x_flat = gat(x_flat, self.adj_full)                      # (BT, N, C)
             x = x_flat.reshape(B, T, N, -1).permute(0, 2, 1, 3)     # (B, N, T, C)
         return x[:, :, -1, :]                                        # (B, N, C)
 
@@ -370,18 +490,10 @@ class STGATPredictor(nn.Module):
         edge_h = self.edge_proj(speed_seq.unsqueeze(-1))             # (B, |E|, T, C)
 
         # ── Node: fixed path ──
-        h_fix = self._run_node_path(
-            node_h, speed_seq,
-            self.n_gtcn_fix, self.n_gat_fix, self.adj_fixed,
-            use_edge_feat=True,
-        )
+        h_fix = self._run_fixed_node_path(node_h, speed_seq)
 
         # ── Node: adaptive path ──
-        h_adp = self._run_node_path(
-            node_h, speed_seq,
-            self.n_gtcn_adp, self.n_gat_adp, self.adj_full,
-            use_edge_feat=False,
-        )
+        h_adp = self._run_adaptive_node_path(node_h)
 
         # ── Fusion ──
         h_node = self.fusion(h_fix, h_adp)                          # (B, N, C)
@@ -391,7 +503,7 @@ class STGATPredictor(nn.Module):
         for gtcn, gat in zip(self.e_gtcn, self.e_gat):
             x_e = gtcn(x_e)                                         # (B, |E|, T, C)
             x_flat = x_e.permute(0, 2, 1, 3).reshape(B * T, nE, -1)
-            x_flat = gat(x_flat, self.line_adj)
+            x_flat = gat(x_flat, self.line_edge_index)
             x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
         h_edge = x_e[:, :, -1, :]                                   # (B, |E|, C)
 

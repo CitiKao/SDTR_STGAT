@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_NAME="${1:-sdtr-stgat-h100}"
+ENV_NAME="${1:-sdtr-stgat-h200}"
 
 # Avoid `ml purge` here. On Nano5 it can trigger `conda deactivate` before the
 # shell hook is initialized, which leads to `Run 'conda init' before 'conda deactivate'`.

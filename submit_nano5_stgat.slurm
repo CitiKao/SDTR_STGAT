@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=sdtr_stgat_train
-#SBATCH --partition=normal
+#SBATCH --partition=normal2
 #SBATCH --account=ACD114200
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --gpus-per-node=2
+#SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm-%j.out
@@ -17,10 +17,13 @@ set -euo pipefail
 # Under Slurm, the batch script is executed from a spool copy in /var/spool/slurmd.
 # Use the original submission directory instead of BASH_SOURCE[0].
 SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
-ENV_NAME="${CONDA_ENV_NAME:-sdtr-stgat-h100}"
-BATCH_SIZE="${BATCH_SIZE:-8}"
-EPOCHS="${EPOCHS:-50}"
+ENV_NAME="${CONDA_ENV_NAME:-sdtr-stgat-h200}"
+BATCH_SIZE="${BATCH_SIZE:-32}"
+EPOCHS="${EPOCHS:-100}"
 PRECISION="${PRECISION:-bf16}"
+VAL_INTERVAL="${VAL_INTERVAL:-5}"
+COMPILE="${COMPILE:-1}"
+COMPILE_MODE="${COMPILE_MODE:-reduce-overhead}"
 RUN_DIR="${SCRIPT_DIR}/runs/nano5_${SLURM_JOB_ID}"
 
 if [[ ! -f "$SCRIPT_DIR/train_predictor.py" ]]; then
@@ -50,6 +53,9 @@ echo "env_name=${ENV_NAME}"
 echo "batch_size=${BATCH_SIZE}"
 echo "epochs=${EPOCHS}"
 echo "precision=${PRECISION}"
+echo "val_interval=${VAL_INTERVAL}"
+echo "compile=${COMPILE}"
+echo "compile_mode=${COMPILE_MODE}"
 
 if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
   echo "Conda environment '$ENV_NAME' was not found." >&2
@@ -58,12 +64,20 @@ if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
   exit 1
 fi
 
-conda run -n "$ENV_NAME" python "$SCRIPT_DIR/train_predictor.py" \
-  --data-dir "$SCRIPT_DIR/data" \
-  --log-dir "$RUN_DIR" \
-  --device auto \
-  --precision "$PRECISION" \
-  --batch-size "$BATCH_SIZE" \
+TRAIN_ARGS=(
+  --data-dir "$SCRIPT_DIR/data"
+  --log-dir "$RUN_DIR"
+  --device auto
+  --precision "$PRECISION"
+  --batch-size "$BATCH_SIZE"
   --epochs "$EPOCHS"
+  --val-interval "$VAL_INTERVAL"
+)
+
+if [[ "$COMPILE" == "1" ]]; then
+  TRAIN_ARGS+=(--compile --compile-mode "$COMPILE_MODE")
+fi
+
+conda run -n "$ENV_NAME" python "$SCRIPT_DIR/train_predictor.py" "${TRAIN_ARGS[@]}"
 
 echo "Training finished. Outputs are in: $RUN_DIR"

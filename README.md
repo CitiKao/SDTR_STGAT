@@ -1,16 +1,17 @@
 # SDTR_STGAT
 
-這是一份只包含 `STGAT` 訓練所需內容的自包含 bundle，可直接上傳到 H100 訓練平台。
+這是一份只包含 `STGAT` 訓練所需內容的自包含 bundle，可直接上傳到 H200 訓練平台。
 
 ## 內容
 
 - `train_predictor.py`
+- `predictor_normalization.py`
 - `stgat_model.py`
 - `data_loader.py`
-- `environment-h100.yml`
+- `environment-h200.yml`
 - `create_nano5_env.sh`
 - `submit_nano5_stgat.slurm`
-- `run_h100.sh`
+- `run_h200.sh`
 - `data/`
   - `adjacency_matrix.npy`
   - `edge_index.npy`
@@ -24,7 +25,7 @@
 
 ## Nano5 建議用法
 
-這份 bundle 已經特別整理成適合臺灣國網中心 iService Nano5（H100）用 Slurm 送件的形式。
+這份 bundle 已經特別整理成適合臺灣國網中心 iService Nano5（H200）用 Slurm 送件的形式。
 
 ### 1. 上傳 bundle
 
@@ -58,7 +59,7 @@ sbatch -A <PROJECT_ID> submit_nano5_stgat.slurm
 sbatch -A <PROJECT_ID> submit_nano5_stgat.slurm
 ```
 
-預設會用 `normal` partition、1 個節點、1 張 H100。
+預設腳本目前使用 `normal2` partition、1 個節點、1 張 GPU；若你們的 H200 在其他 queue，請改 `submit_nano5_stgat.slurm`。
 
 如果你只想先做 smoke test，可改用：
 
@@ -81,27 +82,27 @@ sacct -X
 SDTR_STGAT/runs/nano5_<job_id>/
 ```
 
-把裡面的 `stgat_best.pt`、`stgat_meta.json` 等檔案下載回原專案的 `runs/` 即可接回原本流程。
+把裡面的 `stgat_best.pt`、`stgat_meta.json`、`predictor_test_metrics.json` 等檔案下載回原專案的 `runs/` 即可接回原本流程。
 
 ## 其他一般用法
 
 如果平台支援 conda：
 
 ```bash
-conda env create -f environment-h100.yml
-conda activate sdtr-stgat-h100
-bash run_h100.sh
+conda env create -f environment-h200.yml
+conda activate sdtr-stgat-h200
+bash run_h200.sh
 ```
 
 如果平台本身已提供 CUDA 版 PyTorch 映像：
 
 ```bash
-bash run_h100.sh
+bash run_h200.sh
 ```
 
 ## 預設訓練命令
 
-`run_h100.sh` 預設等價於：
+`run_h200.sh` 預設等價於：
 
 ```bash
 python train_predictor.py \
@@ -111,6 +112,14 @@ python train_predictor.py \
   --precision bf16 \
   --batch-size 16
 ```
+
+目前 predictor 會先做與主專案一致的正規化，再在正規化空間中計算 loss：
+
+- `demand`：`log1p + z-score`
+- `supply`：`log1p + z-score`
+- `speed`：`per-edge z-score`
+
+所有統計量都只使用 `train split` 計算；對應的統計量會寫進 `stgat_meta.json`，供後續 `pipeline.py` 推論時自動還原。
 
 訓練資料切分固定採用：
 
@@ -123,11 +132,16 @@ python train_predictor.py \
 如果你想改參數，可以直接把額外參數接在後面：
 
 ```bash
-bash run_h100.sh --epochs 100 --batch-size 32
+bash run_h200.sh --epochs 100 --batch-size 32
 ```
+
+預設 loss 權重現在是 `lambda1=lambda2=lambda3=1.0`。訓練結束後，`predictor_test_metrics.json` 會同時包含：
+
+- 正規化空間的 `normalized_loss`
+- 反正規化回原始單位後的 `raw_metrics`（`MSE / RMSE / MAE`）
 
 ## 路徑說明
 
-這個專案已經把訓練需要的資料放進 `data/`，並且 `run_h100.sh` 會自動用腳本所在目錄組出絕對路徑，所以不需要依賴原本 `d:/STDR` 的工作目錄。
+這個專案已經把訓練需要的資料放進 `data/`，並且 `run_h200.sh` 會自動用腳本所在目錄組出絕對路徑，所以不需要依賴原本 `d:/STDR` 的工作目錄。
 
 只要整個 `SDTR_STGAT/` 目錄結構保持不變，就不會因為換平台而出現相對路徑問題。
