@@ -200,32 +200,32 @@ def evaluate_loader_raw_metrics(
                 d_pred, c_pred, v_pred = model(node_seq, speed_seq)
 
             d_pred_raw = denormalize_count_values(
-                d_pred.detach().cpu().numpy(),
+                d_pred.detach().float().cpu().numpy(),
                 normalization_stats,
                 task="demand",
             )
             d_tgt_raw = denormalize_count_values(
-                d_tgt.detach().cpu().numpy(),
+                d_tgt.detach().float().cpu().numpy(),
                 normalization_stats,
                 task="demand",
             )
             c_pred_raw = denormalize_count_values(
-                c_pred.detach().cpu().numpy(),
+                c_pred.detach().float().cpu().numpy(),
                 normalization_stats,
                 task="supply",
             )
             c_tgt_raw = denormalize_count_values(
-                c_tgt.detach().cpu().numpy(),
+                c_tgt.detach().float().cpu().numpy(),
                 normalization_stats,
                 task="supply",
             )
             v_pred_raw = denormalize_speed_values(
-                v_pred.detach().cpu().numpy(),
+                v_pred.detach().float().cpu().numpy(),
                 normalization_stats,
                 edge_axis=1,
             )
             v_tgt_raw = denormalize_speed_values(
-                v_tgt.detach().cpu().numpy(),
+                v_tgt.detach().float().cpu().numpy(),
                 normalization_stats,
                 edge_axis=1,
             )
