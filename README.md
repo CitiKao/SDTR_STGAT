@@ -1,55 +1,52 @@
-# SDTR_STGAT
+# STDR-STGAT
 
-`SDTR_STGAT` 是 `STDR` 專案中獨立維護的 predictor 訓練元件，專門負責改版 STGAT 的 `DC` 與 `V` 訓練。
+`STDR-STGAT` is the standalone predictor training component inside the broader `STDR` project. It is the focused training bundle for the modified STGAT model, with separate workflows for:
 
-如果之後要：
+- `DC` training
+- `V` training
+- H200 Slurm execution
+- local RTX 3060 Laptop execution
 
-- 修正 predictor 架構
-- 單獨訓練 `DC`
-- 單獨訓練 `V`
-- 在 H200 上跑 Slurm
-- 在本地 RTX 3060 Laptop 上重跑
-
-都應該以這個目錄為準。
-
-## 目前的核心檔案
+## Core Files
 
 - `train_predictor.py`
-  主訓練入口，支援 `joint`、`dc`、`v` 三種訓練模式。
+  Main training entrypoint. Supports `joint`, `dc`, and `v` training modes.
 - `stgat_model.py`
-  改版 STGAT predictor。
+  Modified STGAT predictor definition.
 - `predictor_normalization.py`
-  `D/C/V` 的 normalization 與反正規化。
+  Normalization and inverse-normalization utilities for `D/C/V`.
 - `data_loader.py`
-  讀取 NYC 真實路網、建立時間特徵、組成 dataset。
+  NYC graph and feature loading utilities.
 - `recompute_predictor_metrics.py`
-  從既有 checkpoint 補算 `stgat_meta.json` 與 `predictor_test_metrics.json`。
+  Rebuilds metrics JSON from checkpoints and metadata.
 - `submit_nano5_stgat_dc.slurm`
-  H200 的 `DC` 訓練入口。
+  H200 Slurm entrypoint for `DC` training.
 - `submit_nano5_stgat_v.slurm`
-  H200 的 `V` 訓練入口。
+  H200 Slurm entrypoint for `V` training.
 - `run_local_dc_3060.ps1`
-  本地 RTX 3060 的 `DC` 訓練入口。
+  Local RTX 3060 runner for `DC`.
 - `run_local_v_3060.ps1`
-  本地 RTX 3060 的 `V` 訓練入口。
+  Local RTX 3060 runner for `V`.
 
-## 模型與任務
+## Tasks
 
-### 任務定義
+### DC
 
-- `DC`
-  預測節點層的 `demand` 與 `supply`
-- `V`
-  預測邊層的 `speed`
+- predicts `demand`
+- predicts `supply`
 
-### 架構摘要
+### V
 
-模型遵循 STGAT 的核心思想，由多個 `ST-block` 組成：
+- predicts `speed`
 
-- 每個 `ST-block` 先做 temporal convolution（`GTCN`）
-- 再做 graph attention
+## Model Structure
 
-可調參數包括：
+The predictor follows the STGAT design idea with stacked `ST-block`s:
+
+- temporal convolution first
+- graph attention second
+
+Adjustable structure parameters include:
 
 - `--num-st-blocks`
 - `--num-gtcn-layers`
@@ -57,35 +54,35 @@
 - `--num-heads`
 - `--kernel-size`
 
-### 圖結構
+## Graph Paths
 
-#### DC 分支
+### DC path
 
-- 有固定 node adjacency path
-- 也有 adaptive node adjacency path
+- fixed node adjacency path
+- adaptive node adjacency path
 
-adaptive adjacency 現在是：
+The adaptive adjacency is now a real learned graph:
 
-- 由 learnable embeddings 生成節點間 score
-- 再做 `top-k` 稀疏化
-- 預設 `--adaptive-topk 16`
+- learned from node embeddings
+- sparsified with `top-k`
+- default `--adaptive-topk 16`
 
-如果設成：
+Set:
 
 ```bash
 --adaptive-topk 0
 ```
 
-才會回到 dense learned graph。
+to fall back to a dense learned graph.
 
-#### V 分支
+### V path
 
-- 使用 fixed line-graph adjacency
-- 目前主線沒有額外的 adaptive edge graph
+- fixed line-graph adjacency path
+- no adaptive edge graph in the mainline setup
 
-## 時間特徵
+## Time Features
 
-目前主線會使用這 6 個時間特徵：
+The predictor uses six calendar features:
 
 - `month_sin`
 - `month_cos`
@@ -94,72 +91,68 @@ adaptive adjacency 現在是：
 - `slot_sin`
 - `slot_cos`
 
-這組特徵是為了讓模型學到：
+This supports learning:
 
-- 一天內相鄰時間窗的變化
-- 星期幾之間的差異
-- 月份之間的 recurring pattern
+- intra-day adjacent time-window patterns
+- weekday differences
+- recurring month-level differences
 
-## 資料切分
+## Split Policy
 
-主線切分規則是：
+The monthly split rule is:
 
-- 每月 `1-20`：train
-- 每月 `21-24`：val
-- 每月 `25+`：test
+- days `1-20`: `train`
+- days `21-24`: `val`
+- days `25+`: `test`
 
-但現在真正使用的規則不是只看 target，而是：
+To avoid leakage, a sample is kept only when the full `history + target` window stays inside a single split.
 
-- **整個 `history + target` window 必須完整落在同一個 split**
+This prevents:
 
-這樣可以避免：
-
-- train sample 吃到上個月 `test` history
-- val / test window 跨 split 邊界
+- train samples from reading `test` history
+- val/test windows from crossing split boundaries
 
 ## Normalization
 
-- `demand`：`log1p + z-score`
-- `supply`：`log1p + z-score`
-- `speed`：`per-edge z-score`
+- `demand`: `log1p + z-score`
+- `supply`: `log1p + z-score`
+- `speed`: per-edge `z-score`
 
-統計量只來自：
+All statistics are computed from train windows only.
 
-- train windows 實際覆蓋到的時間點
+## Training Modes
 
-## 訓練模式
-
-### `DC-only`
+### DC-only
 
 ```bash
 python train_predictor.py --train-task dc --monitor-task dc
 ```
 
-### `V-only`
+### V-only
 
 ```bash
 python train_predictor.py --train-task v --monitor-task v
 ```
 
-### `joint`
+### Joint
 
 ```bash
 python train_predictor.py --train-task joint --monitor-task raw_dc
 ```
 
-`raw_dc` 代表：
+`raw_dc` means:
 
 - `demand_rmse + supply_rmse`
 
-## H200 用法
+## H200 Usage
 
-### 訓練 DC
+### Train DC
 
 ```bash
 NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_dc.slurm
 ```
 
-常用可覆寫參數：
+Common overridable variables:
 
 - `BATCH_SIZE`
 - `EPOCHS`
@@ -170,13 +163,13 @@ NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_dc.slurm
 - `MONITOR_TASK`
 - `RUN_PREFIX`
 
-### 訓練 V
+### Train V
 
 ```bash
 NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_v.slurm
 ```
 
-常用可覆寫參數：
+Common overridable variables:
 
 - `BATCH_SIZE`
 - `EPOCHS`
@@ -185,36 +178,34 @@ NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_v.slurm
 - `ADAPTIVE_TOPK`
 - `RUN_PREFIX`
 
-目前兩支 Slurm 都是：
+Both Slurm scripts are configured for:
 
-- H200 單卡
+- H200
 - `#SBATCH --time=07:00:00`
 
-## 本地 RTX 3060 用法
+## Local RTX 3060 Usage
 
-### 本地訓練 DC
+### Train DC
 
 ```powershell
 .\run_local_dc_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
 ```
 
-### 本地訓練 V
+### Train V
 
 ```powershell
 .\run_local_v_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
 ```
 
-本地腳本預設：
+Local scripts default to:
 
 - `--device cuda`
 - `--precision fp32`
 - `--num-workers 0`
 
-這是為了讓 3060 Laptop 比較穩定，不先假設本地 CUDA / AMP 環境和 H200 完全一致。
+## Outputs
 
-## 輸出檔案
-
-每次訓練的 run 目錄通常會包含：
+Each training run writes:
 
 - `stgat_best.pt`
 - `stgat_final.pt`
@@ -222,28 +213,21 @@ NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_v.slurm
 - `predictor_log.json`
 - `predictor_test_metrics.json`
 
-其中：
+## Recompute
 
-- `stgat_meta.json`
-  記錄模型設定、split、normalization、checkpoint 選模資訊
-- `predictor_test_metrics.json`
-  記錄 normalized loss 與 raw metrics
+`recompute_predictor_metrics.py` is used to:
 
-## Recompute 工具
+- rebuild missing metrics JSON
+- regenerate metadata and test metrics from checkpoints
 
-`recompute_predictor_metrics.py` 用於：
+It respects saved run metadata whenever available.
 
-- 舊 run 缺 JSON
-- 需要從 checkpoint 補算 metadata / metrics
+## Source Of Truth
 
-它會優先讀取既有 run 的 metadata，避免補算時偷偷改用不同的 split 或 normalization。
-
-## 使用原則
-
-如果 README 與程式細節有出入，請以這些檔案為準：
+For predictor work, treat these files as canonical:
 
 - `train_predictor.py`
 - `stgat_model.py`
 - `predictor_normalization.py`
 
-這份 README 只描述目前保留的主線方法，不再記錄已經否決的舊做法。
+If any older notes or temporary scripts disagree with the code, follow the code in `STDR-STGAT`.

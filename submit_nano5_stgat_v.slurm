@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sdtr_stgat_v
+#SBATCH --job-name=stdr_stgat_v
 #SBATCH --partition=normal2
 #SBATCH --account=ACD114200
 #SBATCH --nodes=1
@@ -30,7 +30,7 @@ RUN_DIR="${SCRIPT_DIR}/runs/${RUN_PREFIX}_${SLURM_JOB_ID}"
 if [[ ! -f "$SCRIPT_DIR/train_predictor.py" ]]; then
   echo "Expected train_predictor.py under $SCRIPT_DIR" >&2
   echo "Submit this job from the project directory, for example:" >&2
-  echo "  cd /work/<your_account>/SDTR_STGAT && sbatch submit_nano5_stgat_v.slurm" >&2
+  echo "  cd /work/<your_account>/STDR-STGAT && sbatch submit_nano5_stgat_v.slurm" >&2
   exit 1
 fi
 
