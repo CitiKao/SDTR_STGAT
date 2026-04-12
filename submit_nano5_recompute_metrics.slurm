@@ -35,7 +35,7 @@ HIST_LEN="${HIST_LEN:-12}"
 if [[ ! -f "$SCRIPT_DIR/recompute_predictor_metrics.py" ]]; then
   echo "Expected recompute_predictor_metrics.py under $SCRIPT_DIR" >&2
   echo "Submit this job from the project directory, for example:" >&2
-  echo "  cd /work/<your_account>/SDTR_STGAT" >&2
+  echo "  cd /work/<your_account>/STDR-STGAT" >&2
   echo "  RUN_ID=nano5_159619 sbatch submit_nano5_recompute_metrics.slurm" >&2
   exit 1
 fi
