@@ -109,6 +109,14 @@ def assign_calendar_split(time_meta: pd.DataFrame) -> pd.Series:
     )
 
 
+CALENDAR_SPLIT_STRATEGY = (
+    "per_month_day_1_20_train_21_24_val_25_plus_test_full_window_containment"
+)
+CALENDAR_SPLIT_DESCRIPTION = (
+    "每月 1-20 train / 21-24 val / 25+ test，且整個 history+target window 必須完整落在同一 split"
+)
+
+
 def build_monthly_split_indices(
     time_meta: pd.DataFrame,
     hist_len: int,
@@ -117,16 +125,191 @@ def build_monthly_split_indices(
     total = len(time_meta) - hist_len - pred_horizon + 1
     split_labels = assign_calendar_split(time_meta)
     splits = {"train": [], "val": [], "test": []}
+    window_len = hist_len + pred_horizon
 
     for idx in range(max(total, 0)):
-        t_start = idx + hist_len
-        t_end = t_start + pred_horizon
-        target_labels = split_labels.iloc[t_start:t_end].unique()
-        if len(target_labels) != 1:
+        window_labels = split_labels.iloc[idx: idx + window_len].unique()
+        if len(window_labels) != 1:
             continue
-        splits[str(target_labels[0])].append(idx)
+        splits[str(window_labels[0])].append(idx)
 
     return splits
+
+
+def build_window_time_mask(
+    num_time_steps: int,
+    sample_indices: list[int],
+    hist_len: int,
+    pred_horizon: int,
+) -> np.ndarray:
+    mask = np.zeros(num_time_steps, dtype=bool)
+    window_len = hist_len + pred_horizon
+    for idx in sample_indices:
+        start = int(idx)
+        end = min(start + window_len, num_time_steps)
+        if start < end:
+            mask[start:end] = True
+    return mask
+
+
+def init_loss_dict() -> dict[str, float]:
+    return {"dc": 0.0, "v": 0.0, "demand": 0.0, "supply": 0.0, "speed": 0.0}
+
+
+def skipped_loss_dict() -> dict[str, None]:
+    return {"dc": None, "v": None, "demand": None, "supply": None, "speed": None}
+
+
+def skipped_raw_metric_dict() -> dict[str, float | dict[str, float] | None]:
+    return {"raw_dc": None, "demand": None, "supply": None, "speed": None}
+
+
+def build_task_losses(
+    loss_d: torch.Tensor,
+    loss_c: torch.Tensor,
+    loss_v: torch.Tensor,
+    *,
+    lam1: float,
+    lam2: float,
+    lam3: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    dc_loss = lam1 * loss_d + lam2 * loss_c
+    v_loss = lam3 * loss_v
+    return dc_loss, v_loss
+
+
+def optimized_tasks_for_mode(train_task: str) -> list[str]:
+    if train_task == "dc":
+        return ["dc"]
+    if train_task == "v":
+        return ["v"]
+    return ["dc", "v"]
+
+
+def build_raw_dc_metric(raw_metrics: dict[str, dict[str, float]]) -> float:
+    return float(raw_metrics["demand"]["rmse"] + raw_metrics["supply"]["rmse"])
+
+
+def build_history_record(
+    *,
+    epoch: int,
+    train_losses: dict[str, float],
+    val_losses: dict[str, float | None],
+    val_raw_metrics: dict[str, float | dict[str, float] | None],
+    lr: float,
+    elapsed: float,
+    train_task: str,
+) -> dict:
+    record = {
+        "epoch": epoch,
+        "lr": lr,
+        "elapsed": round(elapsed, 1),
+    }
+    if train_task != "v":
+        record.update(
+            {
+                "train_dc": round(train_losses["dc"], 5),
+                "train_demand": round(train_losses["demand"], 5),
+                "train_supply": round(train_losses["supply"], 5),
+                "val_dc": round(val_losses["dc"], 5) if val_losses["dc"] is not None else None,
+                "val_demand": round(val_losses["demand"], 5) if val_losses["demand"] is not None else None,
+                "val_supply": round(val_losses["supply"], 5) if val_losses["supply"] is not None else None,
+                "val_raw_dc": round(val_raw_metrics["raw_dc"], 5) if val_raw_metrics["raw_dc"] is not None else None,
+                "val_raw_demand_rmse": (
+                    round(val_raw_metrics["demand"]["rmse"], 5)
+                    if val_raw_metrics["demand"] is not None
+                    else None
+                ),
+                "val_raw_supply_rmse": (
+                    round(val_raw_metrics["supply"]["rmse"], 5)
+                    if val_raw_metrics["supply"] is not None
+                    else None
+                ),
+            }
+        )
+    if train_task != "dc":
+        record.update(
+            {
+                "train_v": round(train_losses["v"], 5),
+                "train_speed": round(train_losses["speed"], 5),
+                "val_v": round(val_losses["v"], 5) if val_losses["v"] is not None else None,
+                "val_speed": round(val_losses["speed"], 5) if val_losses["speed"] is not None else None,
+                "val_raw_speed_rmse": (
+                    round(val_raw_metrics["speed"]["rmse"], 5)
+                    if val_raw_metrics["speed"] is not None
+                    else None
+                ),
+            }
+        )
+    return record
+
+
+def format_banner(*, lam1: float, lam2: float, lam3: float, args: argparse.Namespace, val_interval: int) -> str:
+    if args.train_task == "v":
+        return (
+            f"\n開始訓練 | Epochs={args.epochs} | "
+            f"v=({lam3}*V) | val_interval={val_interval} | "
+            f"monitor={args.monitor_task} | train_task={args.train_task}"
+        )
+    if args.train_task == "dc":
+        return (
+            f"\n開始訓練 | Epochs={args.epochs} | "
+            f"dc=({lam1}*D + {lam2}*C) | val_interval={val_interval} | "
+            f"monitor={args.monitor_task} | train_task={args.train_task}"
+        )
+    return (
+        f"\n開始訓練 | Epochs={args.epochs} | "
+        f"dc=({lam1}*D + {lam2}*C) | v=({lam3}*V) | "
+        f"val_interval={val_interval} | monitor={args.monitor_task} | "
+        f"train_task={args.train_task}"
+    )
+
+
+def format_val_message(
+    *,
+    val_losses: dict[str, float | None],
+    val_raw_metrics: dict[str, float | dict[str, float] | None],
+    train_task: str,
+) -> str:
+    if train_task == "v":
+        if val_losses["v"] is None:
+            return "Val=skip"
+        return f"ValV={val_losses['v']:.4f}"
+    if val_losses["dc"] is None:
+        return "Val=skip"
+    if val_raw_metrics["raw_dc"] is not None:
+        return (
+            f"ValDC={val_losses['dc']:.4f} ValV={val_losses['v']:.4f} "
+            f"ValRawDC={val_raw_metrics['raw_dc']:.3f} "
+            f"(D:{val_raw_metrics['demand']['rmse']:.3f} C:{val_raw_metrics['supply']['rmse']:.3f})"
+        )
+    return f"ValDC={val_losses['dc']:.4f} ValV={val_losses['v']:.4f}"
+
+
+def filter_normalized_losses(losses: dict[str, float | None], train_task: str) -> dict[str, float | None]:
+    if train_task == "v":
+        return {
+            "v": losses["v"],
+            "speed": losses["speed"],
+        }
+    if train_task == "dc":
+        return {
+            "dc": losses["dc"],
+            "demand": losses["demand"],
+            "supply": losses["supply"],
+        }
+    return losses
+
+
+def filter_raw_metrics(metrics: dict[str, dict[str, float]], train_task: str) -> dict[str, dict[str, float]]:
+    if train_task == "v":
+        return {"speed": metrics["speed"]}
+    if train_task == "dc":
+        return {
+            "demand": metrics["demand"],
+            "supply": metrics["supply"],
+        }
+    return metrics
 
 
 def evaluate_loader(
@@ -142,7 +325,7 @@ def evaluate_loader(
     lam2: float,
     lam3: float,
 ) -> dict[str, float]:
-    losses = {"demand": 0.0, "supply": 0.0, "speed": 0.0, "total": 0.0}
+    losses = init_loss_dict()
     n_batches = 0
 
     with torch.inference_mode():
@@ -159,12 +342,20 @@ def evaluate_loader(
                 loss_d = mse(d_pred, d_tgt)
                 loss_c = mse(c_pred, c_tgt)
                 loss_v = mse(v_pred, v_tgt)
-                loss = lam1 * loss_d + lam2 * loss_c + lam3 * loss_v
+                loss_dc, loss_task_v = build_task_losses(
+                    loss_d,
+                    loss_c,
+                    loss_v,
+                    lam1=lam1,
+                    lam2=lam2,
+                    lam3=lam3,
+                )
 
+            losses["dc"] += loss_dc.item()
+            losses["v"] += loss_task_v.item()
             losses["demand"] += loss_d.item()
             losses["supply"] += loss_c.item()
             losses["speed"] += loss_v.item()
-            losses["total"] += loss.item()
             n_batches += 1
 
     for key in losses:
@@ -256,6 +447,10 @@ def evaluate_loader_raw_metrics(
 def train(args: argparse.Namespace) -> None:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    if args.train_task == "dc" and args.monitor_task not in {"dc", "raw_dc"}:
+        raise SystemExit("--train-task dc only supports --monitor-task dc/raw_dc.")
+    if args.train_task == "v" and args.monitor_task != "v":
+        raise SystemExit("--train-task v only supports --monitor-task v.")
     device = resolve_device(args.device)
     configure_cuda_runtime(device)
     precision = resolve_precision(device, args.precision)
@@ -290,9 +485,13 @@ def train(args: argparse.Namespace) -> None:
         print(f"  時間特徵: {', '.join(time_feature_names)}")
 
     time_meta = load_time_meta_for_training(args.data_dir, t_steps)
-    split_labels = assign_calendar_split(time_meta)
     split_indices = build_monthly_split_indices(time_meta, args.hist_len, args.pred_horizon)
-    train_time_mask = (split_labels == "train").to_numpy()
+    train_time_mask = build_window_time_mask(
+        t_steps,
+        split_indices["train"],
+        args.hist_len,
+        args.pred_horizon,
+    )
     normalization_stats = build_normalization_stats(node_feat, edge_speeds, train_time_mask)
     node_feat = normalize_node_features(node_feat, normalization_stats)
     edge_speeds = normalize_speed_features(edge_speeds, normalization_stats, edge_axis=1)
@@ -320,9 +519,7 @@ def train(args: argparse.Namespace) -> None:
     val_loader = DataLoader(val_ds, shuffle=False, **loader_kwargs)
     test_loader = DataLoader(test_ds, shuffle=False, **loader_kwargs)
 
-    print(
-        f"  切分方式: 每月 1-20 train / 21-24 val / 25+ test"
-    )
+    print(f"  切分方式: {CALENDAR_SPLIT_DESCRIPTION}")
     print(
         f"  訓練集={len(train_ds)}, 驗證集={len(val_ds)}, 測試集={len(test_ds)}"
     )
@@ -344,6 +541,7 @@ def train(args: argparse.Namespace) -> None:
         kernel_size=args.kernel_size,
         pred_horizon=args.pred_horizon,
         node_feat_dim=node_feat_dim,
+        adaptive_topk=args.adaptive_topk,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -369,11 +567,17 @@ def train(args: argparse.Namespace) -> None:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     history: list[dict] = []
-    best_val_loss = float("inf")
+    best_val_losses = {"dc": float("inf"), "v": float("inf")}
+    best_monitor_values = {"dc": float("inf"), "v": float("inf"), "raw_dc": float("inf")}
+    selected_val_losses = skipped_loss_dict()
+    selected_val_raw_metrics = skipped_raw_metric_dict()
+    optimize_dc = args.train_task != "v"
+    optimize_v = args.train_task != "dc"
+    optimized_tasks = optimized_tasks_for_mode(args.train_task)
 
     lam1, lam2, lam3 = args.lambda1, args.lambda2, args.lambda3
     val_interval = max(args.val_interval, 1)
-    print(f"\n開始訓練 | Epochs={args.epochs} | λ=({lam1},{lam2},{lam3}) | val_interval={val_interval}")
+    print(format_banner(lam1=lam1, lam2=lam2, lam3=lam3, args=args, val_interval=val_interval))
     print("-" * 70)
 
     t0 = time.time()
@@ -381,7 +585,7 @@ def train(args: argparse.Namespace) -> None:
     for epoch in range(1, args.epochs + 1):
         # ── train ──
         model.train()
-        train_losses = {"demand": 0.0, "supply": 0.0, "speed": 0.0, "total": 0.0}
+        train_losses = init_loss_dict()
         n_batches = 0
 
         for batch in train_loader:
@@ -397,17 +601,31 @@ def train(args: argparse.Namespace) -> None:
                 loss_d = mse(d_pred, d_tgt)
                 loss_c = mse(c_pred, c_tgt)
                 loss_v = mse(v_pred, v_tgt)
-                loss = lam1 * loss_d + lam2 * loss_c + lam3 * loss_v
+                loss_dc, loss_task_v = build_task_losses(
+                    loss_d,
+                    loss_c,
+                    loss_v,
+                    lam1=lam1,
+                    lam2=lam2,
+                    lam3=lam3,
+                )
 
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            if optimize_dc and optimize_v:
+                loss_dc.backward(retain_graph=True)
+                loss_task_v.backward()
+            elif optimize_v:
+                loss_task_v.backward()
+            else:
+                loss_dc.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
+            train_losses["dc"] += loss_dc.item()
+            train_losses["v"] += loss_task_v.item()
             train_losses["demand"] += loss_d.item()
             train_losses["supply"] += loss_c.item()
             train_losses["speed"] += loss_v.item()
-            train_losses["total"] += loss.item()
             n_batches += 1
 
         for k in train_losses:
@@ -429,49 +647,114 @@ def train(args: argparse.Namespace) -> None:
                 lam2=lam2,
                 lam3=lam3,
             )
-            scheduler.step(val_losses["total"])
+            val_raw_metrics = skipped_raw_metric_dict()
+            if args.monitor_task == "raw_dc":
+                raw_metrics = evaluate_loader_raw_metrics(
+                    model,
+                    val_loader,
+                    device=device,
+                    non_blocking=non_blocking,
+                    amp_enabled=amp_enabled,
+                    amp_dtype=amp_dtype,
+                    normalization_stats=normalization_stats,
+                )
+                val_raw_metrics = {
+                    "raw_dc": build_raw_dc_metric(raw_metrics),
+                    "demand": raw_metrics["demand"],
+                    "supply": raw_metrics["supply"],
+                    "speed": raw_metrics["speed"],
+                }
+                monitor_value = val_raw_metrics["raw_dc"]
+            else:
+                monitor_value = val_losses[args.monitor_task]
+            scheduler.step(monitor_value)
         else:
-            val_losses = {"demand": None, "supply": None, "speed": None, "total": None}
+            val_losses = skipped_loss_dict()
+            val_raw_metrics = skipped_raw_metric_dict()
 
         # ── 記錄 ──
         elapsed = time.time() - t0
-        record = {
-            "epoch": epoch,
-            "train_total": round(train_losses["total"], 5),
-            "train_demand": round(train_losses["demand"], 5),
-            "train_supply": round(train_losses["supply"], 5),
-            "train_speed": round(train_losses["speed"], 5),
-            "val_total": round(val_losses["total"], 5) if val_losses["total"] is not None else None,
-            "val_demand": round(val_losses["demand"], 5) if val_losses["demand"] is not None else None,
-            "val_supply": round(val_losses["supply"], 5) if val_losses["supply"] is not None else None,
-            "val_speed": round(val_losses["speed"], 5) if val_losses["speed"] is not None else None,
-            "lr": optimizer.param_groups[0]["lr"],
-            "elapsed": round(elapsed, 1),
-        }
+        record = build_history_record(
+            epoch=epoch,
+            train_losses=train_losses,
+            val_losses=val_losses,
+            val_raw_metrics=val_raw_metrics,
+            lr=optimizer.param_groups[0]["lr"],
+            elapsed=elapsed,
+            train_task=args.train_task,
+        )
         history.append(record)
 
-        val_msg = (
-            f"Val={val_losses['total']:.4f}"
-            if val_losses["total"] is not None
-            else "Val=skip"
+        val_msg = format_val_message(
+            val_losses=val_losses,
+            val_raw_metrics=val_raw_metrics,
+            train_task=args.train_task,
         )
         if epoch % args.log_interval == 0 or epoch == 1:
-            print(
-                f"[Ep {epoch:>4d}]  "
-                f"Train={train_losses['total']:.4f} "
-                f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f} V={train_losses['speed']:.3f})  "
-                f"{val_msg}  "
-                f"({elapsed:.0f}s)"
-            )
+            if args.train_task == "v":
+                print(
+                    f"[Ep {epoch:>4d}]  "
+                    f"TrainV={train_losses['v']:.4f} "
+                    f"(S={train_losses['speed']:.3f})  "
+                    f"{val_msg}  "
+                    f"({elapsed:.0f}s)"
+                )
+            elif args.train_task == "dc":
+                print(
+                    f"[Ep {epoch:>4d}]  "
+                    f"TrainDC={train_losses['dc']:.4f} "
+                    f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f})  "
+                    f"{val_msg}  "
+                    f"({elapsed:.0f}s)"
+                )
+            else:
+                print(
+                    f"[Ep {epoch:>4d}]  "
+                    f"TrainDC={train_losses['dc']:.4f} "
+                    f"TrainV={train_losses['v']:.4f} "
+                    f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f} S={train_losses['speed']:.3f})  "
+                    f"{val_msg}  "
+                    f"({elapsed:.0f}s)"
+                )
 
         # ── 儲存最佳 ──
-        if val_losses["total"] is not None and val_losses["total"] < best_val_loss:
-            best_val_loss = val_losses["total"]
-            torch.save(model.state_dict(), log_dir / "stgat_best.pt")
+        if optimize_dc and val_losses["dc"] is not None and val_losses["dc"] < best_val_losses["dc"]:
+            best_val_losses["dc"] = val_losses["dc"]
+            torch.save(model.state_dict(), log_dir / "stgat_best_dc.pt")
+            if args.monitor_task == "dc":
+                torch.save(model.state_dict(), log_dir / "stgat_best.pt")
+                best_monitor_values["dc"] = val_losses["dc"]
+                selected_val_losses = dict(val_losses)
+                selected_val_raw_metrics = dict(val_raw_metrics)
+        if optimize_v and val_losses["v"] is not None and val_losses["v"] < best_val_losses["v"]:
+            best_val_losses["v"] = val_losses["v"]
+            torch.save(model.state_dict(), log_dir / "stgat_best_v.pt")
+            if args.monitor_task == "v":
+                torch.save(model.state_dict(), log_dir / "stgat_best.pt")
+                best_monitor_values["v"] = val_losses["v"]
+                selected_val_losses = dict(val_losses)
+                selected_val_raw_metrics = dict(val_raw_metrics)
+        if val_raw_metrics["raw_dc"] is not None and val_raw_metrics["raw_dc"] < best_monitor_values["raw_dc"]:
+            best_monitor_values["raw_dc"] = val_raw_metrics["raw_dc"]
+            torch.save(model.state_dict(), log_dir / "stgat_best_raw_dc.pt")
+            if args.monitor_task == "raw_dc":
+                torch.save(model.state_dict(), log_dir / "stgat_best.pt")
+                selected_val_losses = dict(val_losses)
+                selected_val_raw_metrics = dict(val_raw_metrics)
 
     # ── 結束 ──
     torch.save(model.state_dict(), log_dir / "stgat_final.pt")
-    print(f"\n訓練完成 | Best Val Loss = {best_val_loss:.5f}")
+    best_monitor_value = best_monitor_values[args.monitor_task]
+    if optimize_v:
+        print(f"Best Val V = {best_val_losses['v']:.5f}")
+    else:
+        print("Best Val V = skipped (train_task=dc)")
+    if optimize_dc and best_val_losses["dc"] < float("inf"):
+        print(f"Best Val DC = {best_val_losses['dc']:.5f}")
+    if args.train_task != "v" and best_monitor_values["raw_dc"] < float("inf"):
+        print(f"Best Val Raw DC = {best_monitor_values['raw_dc']:.5f}")
+    print(f"Default checkpoint is {args.monitor_task}-best: {log_dir / 'stgat_best.pt'}")
+    print(f"\n訓練完成 | Best Monitor Metric = {best_monitor_value:.5f}")
     print(f"模型已儲存至 {log_dir / 'stgat_best.pt'}")
 
     best_state = torch.load(
@@ -502,17 +785,40 @@ def train(args: argparse.Namespace) -> None:
         amp_dtype=amp_dtype,
         normalization_stats=normalization_stats,
     )
-    print(
-        "最終 Test="
-        f"{test_losses['total']:.4f} "
-        f"(D={test_losses['demand']:.3f} C={test_losses['supply']:.3f} V={test_losses['speed']:.3f})"
-    )
-    print(
-        "原始尺度 Test RMSE="
-        f"D:{test_raw_metrics['demand']['rmse']:.3f} "
-        f"C:{test_raw_metrics['supply']['rmse']:.3f} "
-        f"V:{test_raw_metrics['speed']['rmse']:.3f}"
-    )
+    if args.train_task == "v":
+        print(
+            "最終 Test="
+            f"V={test_losses['v']:.4f} "
+            f"(S={test_losses['speed']:.3f})"
+        )
+        print(
+            "原始尺度 Test RMSE="
+            f"V:{test_raw_metrics['speed']['rmse']:.3f}"
+        )
+    elif args.train_task == "dc":
+        print(
+            "最終 Test="
+            f"DC={test_losses['dc']:.4f} "
+            f"(D={test_losses['demand']:.3f} C={test_losses['supply']:.3f})"
+        )
+        print(
+            "原始尺度 Test RMSE="
+            f"D:{test_raw_metrics['demand']['rmse']:.3f} "
+            f"C:{test_raw_metrics['supply']['rmse']:.3f}"
+        )
+    else:
+        print(
+            "最終 Test="
+            f"DC={test_losses['dc']:.4f} "
+            f"V={test_losses['v']:.4f} "
+            f"(D={test_losses['demand']:.3f} C={test_losses['supply']:.3f} S={test_losses['speed']:.3f})"
+        )
+        print(
+            "原始尺度 Test RMSE="
+            f"D:{test_raw_metrics['demand']['rmse']:.3f} "
+            f"C:{test_raw_metrics['supply']['rmse']:.3f} "
+            f"V:{test_raw_metrics['speed']['rmse']:.3f}"
+        )
 
     # 儲存訓練資料元資訊（供 pipeline 使用）
     meta = {
@@ -526,14 +832,49 @@ def train(args: argparse.Namespace) -> None:
         "num_st_blocks": args.num_st_blocks,
         "num_gtcn_layers": args.num_gtcn_layers,
         "kernel_size": args.kernel_size,
+        "adaptive_topk": args.adaptive_topk,
         "pred_horizon": args.pred_horizon,
         "hist_len": args.hist_len,
         "node_feat_dim": node_feat_dim,
         "use_time_features": bool(time_feature_names),
         "time_feature_names": time_feature_names,
         "loss_space": "normalized",
+        "loss_tasks": (
+            {"v": {"formula": f"{lam3} * speed"}}
+            if args.train_task == "v"
+            else {
+                "dc": {"formula": f"{lam1} * demand + {lam2} * supply"},
+                "v": {"formula": f"{lam3} * speed"},
+            }
+        ),
+        "train_task": args.train_task,
+        "optimized_tasks": optimized_tasks,
+        "checkpoint_selection": {
+            "default_checkpoint": "stgat_best.pt",
+            "default_monitor": args.monitor_task,
+            "available_checkpoints": (
+                {
+                    "v": "stgat_best_v.pt",
+                }
+                if args.train_task == "v"
+                else (
+                {
+                    "dc": "stgat_best_dc.pt",
+                    "v": "stgat_best_v.pt",
+                    "raw_dc": "stgat_best_raw_dc.pt",
+                }
+                if optimize_v
+                else {
+                    "dc": "stgat_best_dc.pt",
+                    "raw_dc": "stgat_best_raw_dc.pt",
+                }
+                )
+            ),
+        },
         "normalization": serialize_normalization_stats(normalization_stats),
-        "split_strategy": "per_month_day_1_20_train_21_24_val_25_plus_test",
+        "split_strategy": CALENDAR_SPLIT_STRATEGY,
+        "split_description": CALENDAR_SPLIT_DESCRIPTION,
+        "normalization_time_steps": int(train_time_mask.sum()),
         "split_counts": {
             "train": len(train_ds),
             "val": len(val_ds),
@@ -553,8 +894,18 @@ def train(args: argparse.Namespace) -> None:
         json.dump(
             {
                 "loss_space": "normalized",
-                "normalized_loss": test_losses,
-                "raw_metrics": test_raw_metrics,
+                "normalized_loss": filter_normalized_losses(test_losses, args.train_task),
+                "val_normalized_loss": filter_normalized_losses(selected_val_losses, args.train_task),
+                "val_raw_metrics": (
+                    selected_val_raw_metrics
+                    if args.train_task != "v"
+                    else None
+                ),
+                "raw_metrics": filter_raw_metrics(test_raw_metrics, args.train_task),
+                "selected_checkpoint": "stgat_best.pt",
+                "selected_checkpoint_task": args.monitor_task,
+                "selected_checkpoint_metric": best_monitor_values[args.monitor_task],
+                "train_task": args.train_task,
             },
             f,
             ensure_ascii=False,
@@ -595,6 +946,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hidden-dim", type=int, default=32)
     p.add_argument("--num-heads", type=int, default=4)
     p.add_argument("--num-st-blocks", type=int, default=2)
+    p.add_argument(
+        "--adaptive-topk",
+        type=int,
+        default=16,
+        help="Top-k neighbors kept by the learned adaptive adjacency; 0 keeps the dense graph.",
+    )
     p.add_argument("--num-gtcn-layers", type=int, default=2)
     p.add_argument("--kernel-size", type=int, default=3)
 
@@ -622,6 +979,20 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--log-dir", type=str, default="runs")
     p.add_argument("--log-interval", type=int, default=5)
+    p.add_argument(
+        "--monitor-task",
+        type=str,
+        default="raw_dc",
+        choices=["dc", "v", "raw_dc"],
+        help="Validation metric used for the default scheduler/checkpoint (raw_dc = demand_rmse + supply_rmse).",
+    )
+    p.add_argument(
+        "--train-task",
+        type=str,
+        default="joint",
+        choices=["joint", "dc", "v"],
+        help="Optimization mode: update both task heads, only the DC objective, or only the V objective.",
+    )
     p.add_argument(
         "--val-interval",
         type=int,

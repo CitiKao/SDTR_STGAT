@@ -1,147 +1,249 @@
 # SDTR_STGAT
 
-這是一份只包含 `STGAT` 訓練所需內容的自包含 bundle，可直接上傳到 H200 訓練平台。
+`SDTR_STGAT` 是 `STDR` 專案中獨立維護的 predictor 訓練元件，專門負責改版 STGAT 的 `DC` 與 `V` 訓練。
 
-## 內容
+如果之後要：
+
+- 修正 predictor 架構
+- 單獨訓練 `DC`
+- 單獨訓練 `V`
+- 在 H200 上跑 Slurm
+- 在本地 RTX 3060 Laptop 上重跑
+
+都應該以這個目錄為準。
+
+## 目前的核心檔案
 
 - `train_predictor.py`
-- `predictor_normalization.py`
+  主訓練入口，支援 `joint`、`dc`、`v` 三種訓練模式。
 - `stgat_model.py`
+  改版 STGAT predictor。
+- `predictor_normalization.py`
+  `D/C/V` 的 normalization 與反正規化。
 - `data_loader.py`
-- `environment-h200.yml`
-- `create_nano5_env.sh`
-- `submit_nano5_stgat.slurm`
-- `run_h200.sh`
-- `data/`
-  - `adjacency_matrix.npy`
-  - `edge_index.npy`
-  - `edge_lengths_osrm.npy`
-  - `edge_lengths.npy`
-  - `node_demand.npy`
-  - `node_supply.npy`
-  - `edge_speeds.npy`
-  - `time_meta.csv`
-  - `zone_info.csv`
+  讀取 NYC 真實路網、建立時間特徵、組成 dataset。
+- `recompute_predictor_metrics.py`
+  從既有 checkpoint 補算 `stgat_meta.json` 與 `predictor_test_metrics.json`。
+- `submit_nano5_stgat_dc.slurm`
+  H200 的 `DC` 訓練入口。
+- `submit_nano5_stgat_v.slurm`
+  H200 的 `V` 訓練入口。
+- `run_local_dc_3060.ps1`
+  本地 RTX 3060 的 `DC` 訓練入口。
+- `run_local_v_3060.ps1`
+  本地 RTX 3060 的 `V` 訓練入口。
 
-## Nano5 建議用法
+## 模型與任務
 
-這份 bundle 已經特別整理成適合臺灣國網中心 iService Nano5（H200）用 Slurm 送件的形式。
+### 任務定義
 
-### 1. 上傳 bundle
+- `DC`
+  預測節點層的 `demand` 與 `supply`
+- `V`
+  預測邊層的 `speed`
 
-把整個 `SDTR_STGAT/` 上傳到 Nano5 的工作目錄，例如：
+### 架構摘要
 
-```bash
-/work/<your_account>/SDTR_STGAT
-```
+模型遵循 STGAT 的核心思想，由多個 `ST-block` 組成：
 
-### 2. 建立環境
+- 每個 `ST-block` 先做 temporal convolution（`GTCN`）
+- 再做 graph attention
 
-登入 Nano5 後，先在 bundle 目錄下建立 conda 環境：
+可調參數包括：
 
-```bash
-bash create_nano5_env.sh
-```
+- `--num-st-blocks`
+- `--num-gtcn-layers`
+- `--hidden-dim`
+- `--num-heads`
+- `--kernel-size`
 
-這個腳本會使用 Nano5 手冊建議的 `ml load miniconda3/24.11.1` 與 `conda run` 工作流。
+### 圖結構
 
-### 3. 用 Slurm 提交正式訓練
+#### DC 分支
 
-最推薦直接用：
+- 有固定 node adjacency path
+- 也有 adaptive node adjacency path
 
-```bash
-sbatch -A <PROJECT_ID> submit_nano5_stgat.slurm
-```
+adaptive adjacency 現在是：
 
-如果你習慣傳統檔名，也可以直接：
+- 由 learnable embeddings 生成節點間 score
+- 再做 `top-k` 稀疏化
+- 預設 `--adaptive-topk 16`
 
-```bash
-sbatch -A <PROJECT_ID> submit_nano5_stgat.slurm
-```
-
-預設腳本目前使用 `normal2` partition、1 個節點、1 張 GPU；若你們的 H200 在其他 queue，請改 `submit_nano5_stgat.slurm`。
-
-如果你只想先做 smoke test，可改用：
+如果設成：
 
 ```bash
-sbatch -A <PROJECT_ID> -p dev --time=02:00:00 submit_nano5_stgat.slurm
+--adaptive-topk 0
 ```
 
-### 4. 查看狀態
+才會回到 dense learned graph。
 
-```bash
-squeue -u $USER
-sacct -X
-```
+#### V 分支
 
-### 5. 取回結果
+- 使用 fixed line-graph adjacency
+- 目前主線沒有額外的 adaptive edge graph
 
-訓練結果會寫到：
+## 時間特徵
 
-```bash
-SDTR_STGAT/runs/nano5_<job_id>/
-```
+目前主線會使用這 6 個時間特徵：
 
-把裡面的 `stgat_best.pt`、`stgat_meta.json`、`predictor_test_metrics.json` 等檔案下載回原專案的 `runs/` 即可接回原本流程。
+- `month_sin`
+- `month_cos`
+- `weekday_sin`
+- `weekday_cos`
+- `slot_sin`
+- `slot_cos`
 
-## 其他一般用法
+這組特徵是為了讓模型學到：
 
-如果平台支援 conda：
+- 一天內相鄰時間窗的變化
+- 星期幾之間的差異
+- 月份之間的 recurring pattern
 
-```bash
-conda env create -f environment-h200.yml
-conda activate sdtr-stgat-h200
-bash run_h200.sh
-```
+## 資料切分
 
-如果平台本身已提供 CUDA 版 PyTorch 映像：
+主線切分規則是：
 
-```bash
-bash run_h200.sh
-```
+- 每月 `1-20`：train
+- 每月 `21-24`：val
+- 每月 `25+`：test
 
-## 預設訓練命令
+但現在真正使用的規則不是只看 target，而是：
 
-`run_h200.sh` 預設等價於：
+- **整個 `history + target` window 必須完整落在同一個 split**
 
-```bash
-python train_predictor.py \
-  --data-dir ./data \
-  --log-dir ./runs \
-  --device auto \
-  --precision bf16 \
-  --batch-size 16
-```
+這樣可以避免：
 
-目前 predictor 會先做與主專案一致的正規化，再在正規化空間中計算 loss：
+- train sample 吃到上個月 `test` history
+- val / test window 跨 split 邊界
+
+## Normalization
 
 - `demand`：`log1p + z-score`
 - `supply`：`log1p + z-score`
 - `speed`：`per-edge z-score`
 
-所有統計量都只使用 `train split` 計算；對應的統計量會寫進 `stgat_meta.json`，供後續 `pipeline.py` 推論時自動還原。
+統計量只來自：
 
-訓練資料切分固定採用：
+- train windows 實際覆蓋到的時間點
 
-- 每月 `1-20` 日：`train`
-- 每月 `21-24` 日：`val`
-- 每月 `25` 日之後：`test`
+## 訓練模式
 
-跨到不同切分區間的預測窗口會自動略過，避免 train / val / test 混到同一筆 target。
-
-如果你想改參數，可以直接把額外參數接在後面：
+### `DC-only`
 
 ```bash
-bash run_h200.sh --epochs 100 --batch-size 32
+python train_predictor.py --train-task dc --monitor-task dc
 ```
 
-預設 loss 權重現在是 `lambda1=lambda2=lambda3=1.0`。訓練結束後，`predictor_test_metrics.json` 會同時包含：
+### `V-only`
 
-- 正規化空間的 `normalized_loss`
-- 反正規化回原始單位後的 `raw_metrics`（`MSE / RMSE / MAE`）
+```bash
+python train_predictor.py --train-task v --monitor-task v
+```
 
-## 路徑說明
+### `joint`
 
-這個專案已經把訓練需要的資料放進 `data/`，並且 `run_h200.sh` 會自動用腳本所在目錄組出絕對路徑，所以不需要依賴原本 `d:/STDR` 的工作目錄。
+```bash
+python train_predictor.py --train-task joint --monitor-task raw_dc
+```
 
-只要整個 `SDTR_STGAT/` 目錄結構保持不變，就不會因為換平台而出現相對路徑問題。
+`raw_dc` 代表：
+
+- `demand_rmse + supply_rmse`
+
+## H200 用法
+
+### 訓練 DC
+
+```bash
+NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_dc.slurm
+```
+
+常用可覆寫參數：
+
+- `BATCH_SIZE`
+- `EPOCHS`
+- `PRECISION`
+- `NUM_ST_BLOCKS`
+- `ADAPTIVE_TOPK`
+- `TRAIN_TASK`
+- `MONITOR_TASK`
+- `RUN_PREFIX`
+
+### 訓練 V
+
+```bash
+NUM_ST_BLOCKS=2 sbatch submit_nano5_stgat_v.slurm
+```
+
+常用可覆寫參數：
+
+- `BATCH_SIZE`
+- `EPOCHS`
+- `PRECISION`
+- `NUM_ST_BLOCKS`
+- `ADAPTIVE_TOPK`
+- `RUN_PREFIX`
+
+目前兩支 Slurm 都是：
+
+- H200 單卡
+- `#SBATCH --time=07:00:00`
+
+## 本地 RTX 3060 用法
+
+### 本地訓練 DC
+
+```powershell
+.\run_local_dc_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
+```
+
+### 本地訓練 V
+
+```powershell
+.\run_local_v_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
+```
+
+本地腳本預設：
+
+- `--device cuda`
+- `--precision fp32`
+- `--num-workers 0`
+
+這是為了讓 3060 Laptop 比較穩定，不先假設本地 CUDA / AMP 環境和 H200 完全一致。
+
+## 輸出檔案
+
+每次訓練的 run 目錄通常會包含：
+
+- `stgat_best.pt`
+- `stgat_final.pt`
+- `stgat_meta.json`
+- `predictor_log.json`
+- `predictor_test_metrics.json`
+
+其中：
+
+- `stgat_meta.json`
+  記錄模型設定、split、normalization、checkpoint 選模資訊
+- `predictor_test_metrics.json`
+  記錄 normalized loss 與 raw metrics
+
+## Recompute 工具
+
+`recompute_predictor_metrics.py` 用於：
+
+- 舊 run 缺 JSON
+- 需要從 checkpoint 補算 metadata / metrics
+
+它會優先讀取既有 run 的 metadata，避免補算時偷偷改用不同的 split 或 normalization。
+
+## 使用原則
+
+如果 README 與程式細節有出入，請以這些檔案為準：
+
+- `train_predictor.py`
+- `stgat_model.py`
+- `predictor_normalization.py`
+
+這份 README 只描述目前保留的主線方法，不再記錄已經否決的舊做法。

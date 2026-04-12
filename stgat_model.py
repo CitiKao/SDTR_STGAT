@@ -172,9 +172,11 @@ class GATLayer(nn.Module):
 
         scores = F.leaky_relu(scores, 0.2)
 
-        # mask non-neighbors
-        mask = adj.unsqueeze(0).unsqueeze(-1)  # (1, N, N, 1)
-        scores = scores.masked_fill(mask == 0, -1e9)
+        # mask non-neighbors and bias attention by adjacency weights
+        adj = adj.to(device=h.device, dtype=scores.dtype)
+        mask = adj > 0
+        scores = scores + adj.clamp_min(1e-12).log().unsqueeze(0).unsqueeze(-1)
+        scores = scores.masked_fill(~mask.unsqueeze(0).unsqueeze(-1), -1e9)
 
         alpha = F.softmax(scores, dim=2)  # (B, N, N, H)
         alpha = torch.nan_to_num(alpha, nan=0.0)
@@ -339,6 +341,7 @@ class STGATPredictor(nn.Module):
         kernel_size: int = 3,
         pred_horizon: int = 3,
         adaptive_emb: int = 10,
+        adaptive_topk: int = 16,
         node_feat_dim: int = 2,
         edge_feat_dim: int = 2,
     ) -> None:
@@ -372,10 +375,13 @@ class STGATPredictor(nn.Module):
         # ── 自適應鄰接 ──
         self.emb_src = nn.Parameter(torch.randn(N, adaptive_emb) * 0.1)
         self.emb_dst = nn.Parameter(torch.randn(N, adaptive_emb) * 0.1)
+        self.adaptive_topk = adaptive_topk
 
         # ── 輸入投影 ──
+        self.time_feat_dim = max(node_feat_dim - 2, 0)
+        self.edge_input_dim = 1 + self.time_feat_dim
         self.node_proj = nn.Linear(node_feat_dim, hidden_dim)
-        self.edge_proj = nn.Linear(1, hidden_dim)
+        self.edge_proj = nn.Linear(self.edge_input_dim, hidden_dim)
 
         # ── Node path — fixed topology ──
         self.n_gtcn_fix = nn.ModuleList()
@@ -421,7 +427,21 @@ class STGATPredictor(nn.Module):
     # ── helpers ────────────────────────────────────────────────
 
     def _adaptive_adj(self) -> torch.Tensor:
-        return F.softmax(F.relu(self.emb_src @ self.emb_dst.T), dim=1)
+        scores = F.relu(self.emb_src @ self.emb_dst.T)
+        num_nodes = scores.shape[0]
+        keep_topk = self.adaptive_topk > 0 and self.adaptive_topk < num_nodes
+        if keep_topk:
+            _, topk_idx = scores.topk(self.adaptive_topk, dim=1)
+            mask = torch.zeros_like(scores, dtype=torch.bool)
+            mask.scatter_(1, topk_idx, True)
+        else:
+            mask = torch.ones_like(scores, dtype=torch.bool)
+
+        diag_idx = torch.arange(num_nodes, device=scores.device)
+        mask[diag_idx, diag_idx] = True
+        masked_scores = scores.masked_fill(~mask, float("-inf"))
+        adj = F.softmax(masked_scores, dim=1)
+        return torch.nan_to_num(adj, nan=0.0)
 
     def _fixed_edge_feat(self, speed: torch.Tensor) -> torch.Tensor:
         """
@@ -456,15 +476,30 @@ class STGATPredictor(nn.Module):
         self,
         node_h: torch.Tensor,
     ) -> torch.Tensor:
-        """Adaptive node path that keeps the original dense all-pairs logic."""
+        """Adaptive node path driven by a learned sparse adjacency prior."""
         B, N, T, _ = node_h.shape
         x = node_h
+        adj_adp = self._adaptive_adj()
         for gtcn, gat in zip(self.n_gtcn_adp, self.n_gat_adp):
             x = gtcn(x)                                              # (B, N, T, C)
             x_flat = x.permute(0, 2, 1, 3).reshape(B * T, N, -1)    # (BT, N, C)
-            x_flat = gat(x_flat, self.adj_full)                      # (BT, N, C)
+            x_flat = gat(x_flat, adj_adp)                            # (BT, N, C)
             x = x_flat.reshape(B, T, N, -1).permute(0, 2, 1, 3)     # (B, N, T, C)
         return x[:, :, -1, :]                                        # (B, N, C)
+
+    def _run_fixed_edge_path(
+        self,
+        edge_h: torch.Tensor,
+    ) -> torch.Tensor:
+        """Fixed line-graph edge path."""
+        B, nE, T, _ = edge_h.shape
+        x_e = edge_h
+        for gtcn, gat in zip(self.e_gtcn, self.e_gat):
+            x_e = gtcn(x_e)                                         # (B, |E|, T, C)
+            x_flat = x_e.permute(0, 2, 1, 3).reshape(B * T, nE, -1)
+            x_flat = gat(x_flat, self.line_edge_index)
+            x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
+        return x_e[:, :, -1, :]                                     # (B, |E|, C)
 
     # ── forward ───────────────────────────────────────────────
 
@@ -484,10 +519,14 @@ class STGATPredictor(nn.Module):
         speed_pred  : (B, |E|, p)
         """
         B, N, T, _ = node_seq.shape
-        nE = speed_seq.shape[1]
 
         node_h = self.node_proj(node_seq)                            # (B, N, T, C)
-        edge_h = self.edge_proj(speed_seq.unsqueeze(-1))             # (B, |E|, T, C)
+        edge_input = speed_seq.unsqueeze(-1)
+        if self.time_feat_dim > 0:
+            temporal_feat = node_seq[:, 0, :, 2:]
+            temporal_feat = temporal_feat.unsqueeze(1).expand(-1, speed_seq.shape[1], -1, -1)
+            edge_input = torch.cat([edge_input, temporal_feat], dim=-1)
+        edge_h = self.edge_proj(edge_input)                          # (B, |E|, T, C)
 
         # ── Node: fixed path ──
         h_fix = self._run_fixed_node_path(node_h, speed_seq)
@@ -499,13 +538,8 @@ class STGATPredictor(nn.Module):
         h_node = self.fusion(h_fix, h_adp)                          # (B, N, C)
 
         # ── Edge path ──
-        x_e = edge_h
-        for gtcn, gat in zip(self.e_gtcn, self.e_gat):
-            x_e = gtcn(x_e)                                         # (B, |E|, T, C)
-            x_flat = x_e.permute(0, 2, 1, 3).reshape(B * T, nE, -1)
-            x_flat = gat(x_flat, self.line_edge_index)
-            x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
-        h_edge = x_e[:, :, -1, :]                                   # (B, |E|, C)
+        h_edge_fix = self._run_fixed_edge_path(edge_h)
+        h_edge = h_edge_fix
 
         # ── 輸出 ──
         demand_pred = self.demand_head(h_node)                       # (B, N, p)
