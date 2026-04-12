@@ -455,6 +455,23 @@ class STGATPredictor(nn.Module):
         feat[:, self.fixed_edge_has_road, 1] = speed[:, self.fixed_edge_ids[self.fixed_edge_has_road]]
         return feat
 
+    def _build_edge_input(
+        self,
+        speed_seq: torch.Tensor,
+        temporal_feat_seq: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        edge_input = speed_seq.unsqueeze(-1)
+        if self.time_feat_dim > 0:
+            if temporal_feat_seq is None:
+                temporal_feat_seq = speed_seq.new_zeros(
+                    speed_seq.shape[0],
+                    speed_seq.shape[2],
+                    self.time_feat_dim,
+                )
+            temporal_feat = temporal_feat_seq.unsqueeze(1).expand(-1, speed_seq.shape[1], -1, -1)
+            edge_input = torch.cat([edge_input, temporal_feat], dim=-1)
+        return edge_input
+
     def _run_fixed_node_path(
         self,
         node_h: torch.Tensor,
@@ -501,6 +518,15 @@ class STGATPredictor(nn.Module):
             x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
         return x_e[:, :, -1, :]                                     # (B, |E|, C)
 
+    def forward_v(
+        self,
+        speed_seq: torch.Tensor,
+        temporal_feat_seq: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        edge_h = self.edge_proj(self._build_edge_input(speed_seq, temporal_feat_seq))
+        h_edge = self._run_fixed_edge_path(edge_h)
+        return self.speed_head(h_edge)
+
     # ── forward ───────────────────────────────────────────────
 
     def forward(
@@ -520,13 +546,12 @@ class STGATPredictor(nn.Module):
         """
         B, N, T, _ = node_seq.shape
 
+        temporal_feat_seq = node_seq[:, 0, :, 2:] if self.time_feat_dim > 0 else None
+
         node_h = self.node_proj(node_seq)                            # (B, N, T, C)
-        edge_input = speed_seq.unsqueeze(-1)
-        if self.time_feat_dim > 0:
-            temporal_feat = node_seq[:, 0, :, 2:]
-            temporal_feat = temporal_feat.unsqueeze(1).expand(-1, speed_seq.shape[1], -1, -1)
-            edge_input = torch.cat([edge_input, temporal_feat], dim=-1)
-        edge_h = self.edge_proj(edge_input)                          # (B, |E|, T, C)
+        edge_h = self.edge_proj(
+            self._build_edge_input(speed_seq, temporal_feat_seq)
+        )                                                            # (B, |E|, T, C)
 
         # ── Node: fixed path ──
         h_fix = self._run_fixed_node_path(node_h, speed_seq)

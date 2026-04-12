@@ -27,7 +27,10 @@ from train_predictor import (
     configure_cuda_runtime,
     evaluate_loader,
     evaluate_loader_raw_metrics,
+    filter_normalized_losses,
+    filter_raw_metrics,
     load_time_meta_for_training,
+    optimized_tasks_for_mode,
     resolve_device,
     resolve_num_workers,
     resolve_precision,
@@ -292,6 +295,7 @@ def main() -> None:
     val_losses = evaluate_loader(
         model,
         val_loader,
+        train_task=train_task,
         device=device,
         non_blocking=non_blocking,
         amp_enabled=amp_enabled,
@@ -304,6 +308,7 @@ def main() -> None:
     test_losses = evaluate_loader(
         model,
         test_loader,
+        train_task=train_task,
         device=device,
         non_blocking=non_blocking,
         amp_enabled=amp_enabled,
@@ -316,6 +321,7 @@ def main() -> None:
     test_raw_metrics = evaluate_loader_raw_metrics(
         model,
         test_loader,
+        train_task=train_task,
         device=device,
         non_blocking=non_blocking,
         amp_enabled=amp_enabled,
@@ -341,12 +347,16 @@ def main() -> None:
         "use_time_features": bool(time_feature_names),
         "time_feature_names": time_feature_names,
         "loss_space": "normalized",
-        "loss_tasks": {
-            "dc": {"formula": f"{args.lambda1} * demand + {args.lambda2} * supply"},
-            "v": {"formula": f"{args.lambda3} * speed"},
-        },
+        "loss_tasks": (
+            {"v": {"formula": f"{args.lambda3} * speed"}}
+            if train_task == "v"
+            else {
+                "dc": {"formula": f"{args.lambda1} * demand + {args.lambda2} * supply"},
+                "v": {"formula": f"{args.lambda3} * speed"},
+            }
+        ),
         "train_task": train_task,
-        "optimized_tasks": ["dc"] if train_task == "dc" else ["dc", "v"],
+        "optimized_tasks": optimized_tasks_for_mode(train_task),
         "normalization": serialize_normalization_stats(normalization_stats),
         "split_strategy": CALENDAR_SPLIT_STRATEGY,
         "split_description": CALENDAR_SPLIT_DESCRIPTION,
@@ -369,9 +379,9 @@ def main() -> None:
         json.dump(
             {
                 "loss_space": "normalized",
-                "normalized_loss": test_losses,
-                "raw_metrics": test_raw_metrics,
-                "val_normalized_loss": val_losses,
+                "normalized_loss": filter_normalized_losses(test_losses, train_task),
+                "raw_metrics": filter_raw_metrics(test_raw_metrics, train_task),
+                "val_normalized_loss": filter_normalized_losses(val_losses, train_task),
                 "recomputed_from_checkpoint": str(ckpt_path),
                 "selected_checkpoint": str(ckpt_path),
                 "selected_checkpoint_task": selected_checkpoint_task,

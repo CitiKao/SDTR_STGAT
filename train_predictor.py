@@ -312,10 +312,30 @@ def filter_raw_metrics(metrics: dict[str, dict[str, float]], train_task: str) ->
     return metrics
 
 
+def extract_temporal_context(node_seq: torch.Tensor) -> torch.Tensor | None:
+    if node_seq.shape[-1] <= 2:
+        return None
+    return node_seq[:, 0, :, 2:]
+
+
+def forward_for_task(
+    model: nn.Module,
+    node_seq: torch.Tensor,
+    speed_seq: torch.Tensor,
+    train_task: str,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor]:
+    if train_task == "v":
+        v_pred = model.forward_v(speed_seq, extract_temporal_context(node_seq))
+        return None, None, v_pred
+    d_pred, c_pred, v_pred = model(node_seq, speed_seq)
+    return d_pred, c_pred, v_pred
+
+
 def evaluate_loader(
     model: nn.Module,
     loader: DataLoader,
     *,
+    train_task: str,
     device: torch.device,
     non_blocking: bool,
     amp_enabled: bool,
@@ -337,11 +357,16 @@ def evaluate_loader(
             v_tgt = batch["speed_target"].to(device, non_blocking=non_blocking)
 
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-                d_pred, c_pred, v_pred = model(node_seq, speed_seq)
+                d_pred, c_pred, v_pred = forward_for_task(model, node_seq, speed_seq, train_task)
 
-                loss_d = mse(d_pred, d_tgt)
-                loss_c = mse(c_pred, c_tgt)
                 loss_v = mse(v_pred, v_tgt)
+                if train_task == "v":
+                    zero = loss_v.new_zeros(())
+                    loss_d = zero
+                    loss_c = zero
+                else:
+                    loss_d = mse(d_pred, d_tgt)
+                    loss_c = mse(c_pred, c_tgt)
                 loss_dc, loss_task_v = build_task_losses(
                     loss_d,
                     loss_c,
@@ -367,6 +392,7 @@ def evaluate_loader_raw_metrics(
     model: nn.Module,
     loader: DataLoader,
     *,
+    train_task: str,
     device: torch.device,
     non_blocking: bool,
     amp_enabled: bool,
@@ -388,28 +414,8 @@ def evaluate_loader_raw_metrics(
             v_tgt = batch["speed_target"].to(device, non_blocking=non_blocking)
 
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-                d_pred, c_pred, v_pred = model(node_seq, speed_seq)
+                d_pred, c_pred, v_pred = forward_for_task(model, node_seq, speed_seq, train_task)
 
-            d_pred_raw = denormalize_count_values(
-                d_pred.detach().float().cpu().numpy(),
-                normalization_stats,
-                task="demand",
-            )
-            d_tgt_raw = denormalize_count_values(
-                d_tgt.detach().float().cpu().numpy(),
-                normalization_stats,
-                task="demand",
-            )
-            c_pred_raw = denormalize_count_values(
-                c_pred.detach().float().cpu().numpy(),
-                normalization_stats,
-                task="supply",
-            )
-            c_tgt_raw = denormalize_count_values(
-                c_tgt.detach().float().cpu().numpy(),
-                normalization_stats,
-                task="supply",
-            )
             v_pred_raw = denormalize_speed_values(
                 v_pred.detach().float().cpu().numpy(),
                 normalization_stats,
@@ -421,11 +427,35 @@ def evaluate_loader_raw_metrics(
                 edge_axis=1,
             )
 
-            for name, pred_raw, tgt_raw in (
-                ("demand", d_pred_raw, d_tgt_raw),
-                ("supply", c_pred_raw, c_tgt_raw),
-                ("speed", v_pred_raw, v_tgt_raw),
-            ):
+            comparisons = [("speed", v_pred_raw, v_tgt_raw)]
+            if train_task != "v":
+                d_pred_raw = denormalize_count_values(
+                    d_pred.detach().float().cpu().numpy(),
+                    normalization_stats,
+                    task="demand",
+                )
+                d_tgt_raw = denormalize_count_values(
+                    d_tgt.detach().float().cpu().numpy(),
+                    normalization_stats,
+                    task="demand",
+                )
+                c_pred_raw = denormalize_count_values(
+                    c_pred.detach().float().cpu().numpy(),
+                    normalization_stats,
+                    task="supply",
+                )
+                c_tgt_raw = denormalize_count_values(
+                    c_tgt.detach().float().cpu().numpy(),
+                    normalization_stats,
+                    task="supply",
+                )
+                comparisons = [
+                    ("demand", d_pred_raw, d_tgt_raw),
+                    ("supply", c_pred_raw, c_tgt_raw),
+                    ("speed", v_pred_raw, v_tgt_raw),
+                ]
+
+            for name, pred_raw, tgt_raw in comparisons:
                 diff = pred_raw.astype(np.float64) - tgt_raw.astype(np.float64)
                 accum[name]["se"] += float(np.square(diff).sum())
                 accum[name]["ae"] += float(np.abs(diff).sum())
@@ -596,11 +626,15 @@ def train(args: argparse.Namespace) -> None:
             v_tgt = batch["speed_target"].to(device, non_blocking=non_blocking)
 
             with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=amp_enabled):
-                d_pred, c_pred, v_pred = model(node_seq, speed_seq)
-
-                loss_d = mse(d_pred, d_tgt)
-                loss_c = mse(c_pred, c_tgt)
+                d_pred, c_pred, v_pred = forward_for_task(model, node_seq, speed_seq, args.train_task)
                 loss_v = mse(v_pred, v_tgt)
+                if args.train_task == "v":
+                    zero = loss_v.new_zeros(())
+                    loss_d = zero
+                    loss_c = zero
+                else:
+                    loss_d = mse(d_pred, d_tgt)
+                    loss_c = mse(c_pred, c_tgt)
                 loss_dc, loss_task_v = build_task_losses(
                     loss_d,
                     loss_c,
@@ -638,6 +672,7 @@ def train(args: argparse.Namespace) -> None:
             val_losses = evaluate_loader(
                 model,
                 val_loader,
+                train_task=args.train_task,
                 device=device,
                 non_blocking=non_blocking,
                 amp_enabled=amp_enabled,
@@ -652,6 +687,7 @@ def train(args: argparse.Namespace) -> None:
                 raw_metrics = evaluate_loader_raw_metrics(
                     model,
                     val_loader,
+                    train_task=args.train_task,
                     device=device,
                     non_blocking=non_blocking,
                     amp_enabled=amp_enabled,
@@ -767,6 +803,7 @@ def train(args: argparse.Namespace) -> None:
     test_losses = evaluate_loader(
         model,
         test_loader,
+        train_task=args.train_task,
         device=device,
         non_blocking=non_blocking,
         amp_enabled=amp_enabled,
@@ -779,6 +816,7 @@ def train(args: argparse.Namespace) -> None:
     test_raw_metrics = evaluate_loader_raw_metrics(
         model,
         test_loader,
+        train_task=args.train_task,
         device=device,
         non_blocking=non_blocking,
         amp_enabled=amp_enabled,

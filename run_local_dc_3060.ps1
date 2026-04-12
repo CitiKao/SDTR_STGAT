@@ -4,14 +4,25 @@ param(
     [int]$NumStBlocks = 2,
     [int]$AdaptiveTopK = 16,
     [string]$MonitorTask = "dc",
-    [string]$Precision = "fp32"
+    [string]$Precision = "fp32",
+    [string]$PythonExe = ""
 )
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runId = "local_dc_${NumStBlocks}b_3060_" + (Get-Date -Format "yyyyMMdd_HHmmss")
 $logDir = Join-Path $root ("runs\" + $runId)
+$candidates = @()
+if ($PythonExe) {
+    $candidates += $PythonExe
+}
+$candidates += @(
+    (Join-Path $root ".venv\Scripts\python.exe"),
+    (Join-Path $root "venv\Scripts\python.exe"),
+    "python"
+)
+$python = $candidates | Where-Object { $_ -eq "python" -or (Test-Path $_) } | Select-Object -First 1
 
-python (Join-Path $root "train_predictor.py") `
+& $python (Join-Path $root "train_predictor.py") `
   --data-dir (Join-Path $root "data") `
   --log-dir $logDir `
   --device cuda `
