@@ -1,4 +1,4 @@
-This branch is `codex/dc-h200-sweep`.
+This branch is `codex/dc-sweep`.
 
 Purpose:
 
