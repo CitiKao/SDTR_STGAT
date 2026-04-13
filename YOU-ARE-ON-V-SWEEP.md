@@ -1,4 +1,4 @@
-This branch is `codex/v-h200-sweep`.
+This branch is `codex/v-sweep`.
 
 Purpose:
 
