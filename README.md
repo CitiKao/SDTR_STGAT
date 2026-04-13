@@ -5,7 +5,6 @@
 - `DC` training
 - `V` training
 - H200 Slurm execution
-- local RTX 3060 Laptop execution
 
 ## Core Files
 
@@ -25,10 +24,6 @@
   Dedicated H200 smoke / pilot / extended command handbook for the `DC` branch.
 - `submit_nano5_stgat_v.slurm`
   H200 Slurm entrypoint for `V` training.
-- `run_local_dc_3060.ps1`
-  Local RTX 3060 runner for `DC`.
-- `run_local_v_3060.ps1`
-  Local RTX 3060 runner for `V`.
 
 ## Tasks
 
@@ -209,26 +204,6 @@ Both Slurm scripts are configured for:
 
 - H200
 - `#SBATCH --time=07:00:00`
-
-## Local RTX 3060 Usage
-
-### Train DC
-
-```powershell
-.\run_local_dc_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
-```
-
-### Train V
-
-```powershell
-.\run_local_v_3060.ps1 -NumStBlocks 2 -BatchSize 16 -Epochs 100
-```
-
-Local scripts default to:
-
-- `--device cuda`
-- `--precision fp32`
-- `--num-workers 0`
 
 ## Outputs
 
