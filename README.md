@@ -21,6 +21,8 @@
   Rebuilds metrics JSON from checkpoints and metadata.
 - `submit_nano5_stgat_dc.slurm`
   H200 Slurm entrypoint for `DC` training.
+- `H200_DC_SWEEP_COMMANDS.md`
+  Dedicated H200 smoke / pilot / extended command handbook for the `DC` branch.
 - `submit_nano5_stgat_v.slurm`
   H200 Slurm entrypoint for `V` training.
 - `run_local_dc_3060.ps1`
@@ -156,6 +158,8 @@ Common overridable variables:
 
 - `BATCH_SIZE`
 - `EPOCHS`
+- `LR`
+- `MAX_TIME_STEPS`
 - `PRECISION`
 - `NUM_ST_BLOCKS`
 - `ADAPTIVE_TOPK`
@@ -177,6 +181,29 @@ Common overridable variables:
 - `NUM_ST_BLOCKS`
 - `ADAPTIVE_TOPK`
 - `RUN_PREFIX`
+
+### DC H200 Sweep Workflow
+
+This branch is the DC-specific H200 sweep surface.
+
+Use:
+
+- `submit_nano5_stgat_dc.slurm`
+- `H200_DC_SWEEP_COMMANDS.md`
+
+The command handbook is organized into:
+
+- `smoke`
+- `pilot`
+- `extended`
+
+and every command explicitly shows:
+
+- `TRAIN_TASK=dc`
+- `MONITOR_TASK=dc`
+- `BATCH_SIZE`
+- `EPOCHS`
+- `LR`
 
 Both Slurm scripts are configured for:
 
