@@ -245,23 +245,30 @@ def build_history_record(
 
 
 def format_banner(*, lam1: float, lam2: float, lam3: float, args: argparse.Namespace, val_interval: int) -> str:
+    speed_mode = (
+        f"fixed+adaptive(k={args.speed_adaptive_topk})"
+        if args.speed_use_adaptive
+        else "fixed-only"
+    )
     if args.train_task == "v":
         return (
             f"\n開始訓練 | Epochs={args.epochs} | "
             f"v=({lam3}*V) | val_interval={val_interval} | "
-            f"monitor={args.monitor_task} | train_task={args.train_task}"
+            f"monitor={args.monitor_task} | train_task={args.train_task} | "
+            f"speed_path={speed_mode}"
         )
     if args.train_task == "dc":
         return (
             f"\n開始訓練 | Epochs={args.epochs} | "
             f"dc=({lam1}*D + {lam2}*C) | val_interval={val_interval} | "
-            f"monitor={args.monitor_task} | train_task={args.train_task}"
+            f"monitor={args.monitor_task} | train_task={args.train_task} | "
+            f"speed_path={speed_mode}"
         )
     return (
         f"\n開始訓練 | Epochs={args.epochs} | "
         f"dc=({lam1}*D + {lam2}*C) | v=({lam3}*V) | "
         f"val_interval={val_interval} | monitor={args.monitor_task} | "
-        f"train_task={args.train_task}"
+        f"train_task={args.train_task} | speed_path={speed_mode}"
     )
 
 
@@ -481,6 +488,8 @@ def train(args: argparse.Namespace) -> None:
         raise SystemExit("--train-task dc only supports --monitor-task dc/raw_dc.")
     if args.train_task == "v" and args.monitor_task != "v":
         raise SystemExit("--train-task v only supports --monitor-task v.")
+    if args.speed_use_adaptive and args.speed_adaptive_topk <= 0:
+        raise SystemExit("--speed-adaptive-topk must be > 0 when --speed-use-adaptive is enabled.")
     device = resolve_device(args.device)
     configure_cuda_runtime(device)
     precision = resolve_precision(device, args.precision)
@@ -572,6 +581,8 @@ def train(args: argparse.Namespace) -> None:
         pred_horizon=args.pred_horizon,
         node_feat_dim=node_feat_dim,
         adaptive_topk=args.adaptive_topk,
+        speed_use_adaptive=args.speed_use_adaptive,
+        speed_adaptive_topk=args.speed_adaptive_topk,
     ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -793,6 +804,13 @@ def train(args: argparse.Namespace) -> None:
     print(f"\n訓練完成 | Best Monitor Metric = {best_monitor_value:.5f}")
     print(f"模型已儲存至 {log_dir / 'stgat_best.pt'}")
 
+    model_for_logging = model._orig_mod if hasattr(model, "_orig_mod") else model
+    speed_adaptive_graph = (
+        model_for_logging.speed_adaptive_graph_summary()
+        if args.speed_use_adaptive
+        else None
+    )
+
     best_state = torch.load(
         log_dir / "stgat_best.pt",
         map_location=device,
@@ -871,6 +889,13 @@ def train(args: argparse.Namespace) -> None:
         "num_gtcn_layers": args.num_gtcn_layers,
         "kernel_size": args.kernel_size,
         "adaptive_topk": args.adaptive_topk,
+        "speed_use_adaptive": args.speed_use_adaptive,
+        "speed_adaptive_topk": args.speed_adaptive_topk,
+        "speed_adaptive_domain": "edge",
+        "speed_topology_mode": (
+            "fixed_plus_adaptive_fusion" if args.speed_use_adaptive else "fixed_only"
+        ),
+        "speed_adaptive_graph": speed_adaptive_graph,
         "pred_horizon": args.pred_horizon,
         "hist_len": args.hist_len,
         "node_feat_dim": node_feat_dim,
@@ -944,6 +969,11 @@ def train(args: argparse.Namespace) -> None:
                 "selected_checkpoint_task": args.monitor_task,
                 "selected_checkpoint_metric": best_monitor_values[args.monitor_task],
                 "train_task": args.train_task,
+                "speed_use_adaptive": args.speed_use_adaptive,
+                "speed_adaptive_topk": args.speed_adaptive_topk,
+                "speed_topology_mode": (
+                    "fixed_plus_adaptive_fusion" if args.speed_use_adaptive else "fixed_only"
+                ),
             },
             f,
             ensure_ascii=False,
@@ -989,6 +1019,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=16,
         help="Top-k neighbors kept by the learned adaptive adjacency; 0 keeps the dense graph.",
+    )
+    p.add_argument(
+        "--speed-use-adaptive",
+        action="store_true",
+        help="Enable a learned sparse edge-edge adaptive path for V and fuse it with the fixed line-graph path.",
+    )
+    p.add_argument(
+        "--speed-adaptive-topk",
+        type=int,
+        default=16,
+        help="Top-k senders kept per receiving edge in the learned adaptive V graph; must be > 0 when enabled.",
     )
     p.add_argument("--num-gtcn-layers", type=int, default=2)
     p.add_argument("--kernel-size", type=int, default=3)

@@ -93,6 +93,14 @@ def infer_model_config(state_dict: dict[str, Any]) -> dict[str, Any]:
         "num_gtcn_layers": int(max(layer_ids) + 1),
         "kernel_size": int(gate_conv_weight.shape[-1]),
         "use_time_features": bool(node_feat_dim > 2),
+        "speed_use_adaptive": any(
+            key.startswith("speed_emb_src")
+            or key.startswith("speed_emb_dst")
+            or key.startswith("e_gtcn_adp.")
+            or key.startswith("e_gat_adp.")
+            or key.startswith("speed_fusion.")
+            for key in sd
+        ),
     }
 
 
@@ -142,6 +150,12 @@ def parse_args() -> argparse.Namespace:
         default=16,
         help="Fallback adaptive top-k when checkpoint metadata is unavailable; 0 keeps the dense graph.",
     )
+    p.add_argument(
+        "--speed-adaptive-topk",
+        type=int,
+        default=16,
+        help="Fallback V adaptive top-k when checkpoint metadata is unavailable.",
+    )
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--device", type=str, default="auto")
     p.add_argument(
@@ -158,7 +172,7 @@ def parse_args() -> argparse.Namespace:
         "--train-task",
         type=str,
         default="joint",
-        choices=["joint", "dc"],
+        choices=["joint", "dc", "v"],
         help="Training mode used by the checkpoint; recorded in regenerated metadata.",
     )
     return p.parse_args()
@@ -190,7 +204,19 @@ def main() -> None:
     config = infer_model_config(state_dict)
     hist_len = int(saved_meta.get("hist_len", args.hist_len)) if saved_meta else int(args.hist_len)
     adaptive_topk = int(saved_meta.get("adaptive_topk", args.adaptive_topk)) if saved_meta else int(args.adaptive_topk)
+    speed_adaptive_topk = (
+        int(saved_meta.get("speed_adaptive_topk", args.speed_adaptive_topk))
+        if saved_meta
+        else int(args.speed_adaptive_topk)
+    )
     train_task = str(saved_meta.get("train_task", args.train_task)) if saved_meta else str(args.train_task)
+    speed_use_adaptive = (
+        bool(saved_meta.get("speed_use_adaptive", config["speed_use_adaptive"]))
+        if saved_meta
+        else bool(config["speed_use_adaptive"])
+    )
+    if speed_use_adaptive and speed_adaptive_topk <= 0:
+        raise ValueError("speed_adaptive_topk must be > 0 when the checkpoint enables V adaptive fusion.")
     selected_checkpoint_task = infer_checkpoint_task(ckpt_path, saved_meta)
     saved_normalization = (
         load_normalization_stats(saved_meta.get("normalization"))
@@ -209,6 +235,8 @@ def main() -> None:
         f"pred_horizon={config['pred_horizon']} "
         f"hist_len={hist_len} "
         f"adaptive_topk={adaptive_topk} "
+        f"speed_use_adaptive={speed_use_adaptive} "
+        f"speed_adaptive_topk={speed_adaptive_topk} "
         f"use_time_features={config['use_time_features']}"
     )
 
@@ -287,9 +315,12 @@ def main() -> None:
         pred_horizon=config["pred_horizon"],
         node_feat_dim=config["node_feat_dim"],
         adaptive_topk=adaptive_topk,
+        speed_use_adaptive=speed_use_adaptive,
+        speed_adaptive_topk=speed_adaptive_topk,
     ).to(device)
     model.load_state_dict(state_dict)
     model.eval()
+    speed_adaptive_graph = model.speed_adaptive_graph_summary() if speed_use_adaptive else None
 
     mse = torch.nn.MSELoss()
     val_losses = evaluate_loader(
@@ -341,6 +372,13 @@ def main() -> None:
         "num_gtcn_layers": int(config["num_gtcn_layers"]),
         "kernel_size": int(config["kernel_size"]),
         "adaptive_topk": adaptive_topk,
+        "speed_use_adaptive": speed_use_adaptive,
+        "speed_adaptive_topk": speed_adaptive_topk,
+        "speed_adaptive_domain": "edge",
+        "speed_topology_mode": (
+            "fixed_plus_adaptive_fusion" if speed_use_adaptive else "fixed_only"
+        ),
+        "speed_adaptive_graph": speed_adaptive_graph,
         "pred_horizon": int(config["pred_horizon"]),
         "hist_len": hist_len,
         "node_feat_dim": int(config["node_feat_dim"]),

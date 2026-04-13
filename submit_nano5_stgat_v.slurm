@@ -26,6 +26,8 @@ COMPILE="${COMPILE:-0}"
 COMPILE_MODE="${COMPILE_MODE:-reduce-overhead}"
 NUM_ST_BLOCKS="${NUM_ST_BLOCKS:-2}"
 ADAPTIVE_TOPK="${ADAPTIVE_TOPK:-16}"
+SPEED_USE_ADAPTIVE="${SPEED_USE_ADAPTIVE:-0}"
+SPEED_ADAPTIVE_TOPK="${SPEED_ADAPTIVE_TOPK:-$ADAPTIVE_TOPK}"
 RUN_PREFIX="${RUN_PREFIX:-nano5_v_${NUM_ST_BLOCKS}b}"
 RUN_DIR="${SCRIPT_DIR}/runs/${RUN_PREFIX}_${SLURM_JOB_ID}"
 
@@ -58,6 +60,8 @@ echo "compile=${COMPILE}"
 echo "compile_mode=${COMPILE_MODE}"
 echo "num_st_blocks=${NUM_ST_BLOCKS}"
 echo "adaptive_topk=${ADAPTIVE_TOPK}"
+echo "speed_use_adaptive=${SPEED_USE_ADAPTIVE}"
+echo "speed_adaptive_topk=${SPEED_ADAPTIVE_TOPK}"
 echo "train_task=v"
 echo "monitor_task=v"
 
@@ -79,6 +83,7 @@ TRAIN_ARGS=(
   --val-interval "$VAL_INTERVAL"
   --num-st-blocks "$NUM_ST_BLOCKS"
   --adaptive-topk "$ADAPTIVE_TOPK"
+  --speed-adaptive-topk "$SPEED_ADAPTIVE_TOPK"
   --train-task v
   --monitor-task v
 )
@@ -89,6 +94,10 @@ fi
 
 if [[ "$COMPILE" == "1" ]]; then
   TRAIN_ARGS+=(--compile --compile-mode "$COMPILE_MODE")
+fi
+
+if [[ "$SPEED_USE_ADAPTIVE" == "1" ]]; then
+  TRAIN_ARGS+=(--speed-use-adaptive)
 fi
 
 conda run -n "$ENV_NAME" python "$SCRIPT_DIR/train_predictor.py" "${TRAIN_ARGS[@]}"

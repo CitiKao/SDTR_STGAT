@@ -41,6 +41,22 @@ def build_line_graph_edge_index(edge_index: torch.Tensor) -> torch.Tensor:
     return torch.stack([recv, send], dim=0).long()
 
 
+def build_topk_mask(scores: torch.Tensor, topk: int) -> torch.Tensor:
+    """Build a directed row-wise top-k mask and always keep self loops."""
+    num_items = scores.shape[0]
+    keep_topk = topk > 0 and topk < num_items
+    if keep_topk:
+        _, topk_idx = scores.topk(topk, dim=1)
+        mask = torch.zeros_like(scores, dtype=torch.bool)
+        mask.scatter_(1, topk_idx, True)
+    else:
+        mask = torch.ones_like(scores, dtype=torch.bool)
+
+    diag_idx = torch.arange(num_items, device=scores.device)
+    mask[diag_idx, diag_idx] = True
+    return mask
+
+
 # ════════════════════════════════════════════════════════════════
 #  GTCN — Gated Temporal Convolutional Network
 # ════════════════════════════════════════════════════════════════
@@ -234,6 +250,7 @@ class SparseGATLayer(nn.Module):
         h: torch.Tensor,
         edge_index: torch.Tensor,
         edge_feat: Optional[torch.Tensor] = None,
+        edge_weight: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         h         : (B, N, C_in)
@@ -258,6 +275,9 @@ class SparseGATLayer(nn.Module):
             e = self.W_e(edge_feat).view(B, num_edges, H, D)
             scores = scores + (e * self.a_e).sum(-1)
         scores = F.leaky_relu(scores, 0.2).float()
+        if edge_weight is not None:
+            weight_bias = edge_weight.to(device=h.device, dtype=scores.dtype)
+            scores = scores + weight_bias.clamp_min(1e-12).log().view(1, num_edges, 1)
 
         recv_index = recv.view(1, num_edges, 1).expand(B, num_edges, H)
         max_scores = torch.full(
@@ -344,6 +364,9 @@ class STGATPredictor(nn.Module):
         adaptive_topk: int = 16,
         node_feat_dim: int = 2,
         edge_feat_dim: int = 2,
+        speed_use_adaptive: bool = False,
+        speed_adaptive_topk: int | None = None,
+        speed_adaptive_emb: int = 10,
     ) -> None:
         super().__init__()
         N = num_nodes
@@ -371,11 +394,18 @@ class STGATPredictor(nn.Module):
         self.register_buffer("fixed_edge_ids", fixed_edge_ids)
         self.register_buffer("fixed_edge_lengths", fixed_edge_lengths)
         self.register_buffer("fixed_edge_has_road", fixed_has_road)
+        self.num_edges = int(edge_index.shape[0])
 
         # ── 自適應鄰接 ──
         self.emb_src = nn.Parameter(torch.randn(N, adaptive_emb) * 0.1)
         self.emb_dst = nn.Parameter(torch.randn(N, adaptive_emb) * 0.1)
         self.adaptive_topk = adaptive_topk
+        self.speed_use_adaptive = speed_use_adaptive
+        self.speed_adaptive_topk = adaptive_topk if speed_adaptive_topk is None else speed_adaptive_topk
+        if self.speed_use_adaptive and not (0 < self.speed_adaptive_topk < self.num_edges):
+            raise ValueError(
+                "speed_adaptive_topk must be in [1, num_edges - 1] when speed adaptive V is enabled."
+            )
 
         # ── 輸入投影 ──
         self.time_feat_dim = max(node_feat_dim - 2, 0)
@@ -419,6 +449,20 @@ class STGATPredictor(nn.Module):
                 SparseGATLayer(hidden_dim, d_per_head, num_heads, concat=True)
             )
 
+        if self.speed_use_adaptive:
+            self.speed_emb_src = nn.Parameter(torch.randn(self.num_edges, speed_adaptive_emb) * 0.1)
+            self.speed_emb_dst = nn.Parameter(torch.randn(self.num_edges, speed_adaptive_emb) * 0.1)
+            self.e_gtcn_adp = nn.ModuleList()
+            self.e_gat_adp = nn.ModuleList()
+            for _ in range(num_st_blocks):
+                self.e_gtcn_adp.append(
+                    GTCN(hidden_dim, hidden_dim, hidden_dim, num_gtcn_layers, kernel_size)
+                )
+                self.e_gat_adp.append(
+                    SparseGATLayer(hidden_dim, d_per_head, num_heads, concat=True)
+                )
+            self.speed_fusion = GatedFusion(hidden_dim)
+
         # ── 輸出頭 ──
         self.demand_head = nn.Linear(hidden_dim, pred_horizon)
         self.supply_head = nn.Linear(hidden_dim, pred_horizon)
@@ -428,20 +472,37 @@ class STGATPredictor(nn.Module):
 
     def _adaptive_adj(self) -> torch.Tensor:
         scores = F.relu(self.emb_src @ self.emb_dst.T)
-        num_nodes = scores.shape[0]
-        keep_topk = self.adaptive_topk > 0 and self.adaptive_topk < num_nodes
-        if keep_topk:
-            _, topk_idx = scores.topk(self.adaptive_topk, dim=1)
-            mask = torch.zeros_like(scores, dtype=torch.bool)
-            mask.scatter_(1, topk_idx, True)
-        else:
-            mask = torch.ones_like(scores, dtype=torch.bool)
-
-        diag_idx = torch.arange(num_nodes, device=scores.device)
-        mask[diag_idx, diag_idx] = True
+        mask = build_topk_mask(scores, self.adaptive_topk)
         masked_scores = scores.masked_fill(~mask, float("-inf"))
         adj = F.softmax(masked_scores, dim=1)
         return torch.nan_to_num(adj, nan=0.0)
+
+    def _adaptive_edge_graph(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Learn a directed sparse edge-edge prior for V speed prediction."""
+        scores = F.relu(self.speed_emb_src @ self.speed_emb_dst.T)
+        mask = build_topk_mask(scores, self.speed_adaptive_topk)
+        masked_scores = scores.masked_fill(~mask, float("-inf"))
+        edge_weight = torch.nan_to_num(F.softmax(masked_scores, dim=1), nan=0.0)
+        recv, send = torch.nonzero(mask, as_tuple=True)
+        edge_index = torch.stack([recv, send], dim=0).long()
+        return edge_index, edge_weight[recv, send]
+
+    def speed_adaptive_graph_summary(self) -> dict[str, float | int] | None:
+        if not self.speed_use_adaptive:
+            return None
+        edge_index, _ = self._adaptive_edge_graph()
+        recv = edge_index[0]
+        degree = torch.bincount(recv, minlength=self.num_edges)
+        total_pairs = max(self.num_edges * self.num_edges, 1)
+        self_loops = int((edge_index[0] == edge_index[1]).sum().item())
+        return {
+            "num_edges": int(edge_index.shape[1]),
+            "degree_mean": float(degree.float().mean().item()),
+            "degree_min": int(degree.min().item()),
+            "degree_max": int(degree.max().item()),
+            "self_loops_kept": self_loops,
+            "density": float(edge_index.shape[1] / total_pairs),
+        }
 
     def _fixed_edge_feat(self, speed: torch.Tensor) -> torch.Tensor:
         """
@@ -518,13 +579,35 @@ class STGATPredictor(nn.Module):
             x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
         return x_e[:, :, -1, :]                                     # (B, |E|, C)
 
+    def _run_adaptive_edge_path(
+        self,
+        edge_h: torch.Tensor,
+    ) -> torch.Tensor:
+        """Adaptive edge path driven by a learned sparse edge-edge graph."""
+        B, nE, T, _ = edge_h.shape
+        x_e = edge_h
+        adaptive_edge_index, adaptive_edge_weight = self._adaptive_edge_graph()
+        for gtcn, gat in zip(self.e_gtcn_adp, self.e_gat_adp):
+            x_e = gtcn(x_e)
+            x_flat = x_e.permute(0, 2, 1, 3).reshape(B * T, nE, -1)
+            x_flat = gat(x_flat, adaptive_edge_index, edge_weight=adaptive_edge_weight)
+            x_e = x_flat.reshape(B, T, nE, -1).permute(0, 2, 1, 3)
+        return x_e[:, :, -1, :]
+
+    def _run_speed_path(self, edge_h: torch.Tensor) -> torch.Tensor:
+        h_edge_fix = self._run_fixed_edge_path(edge_h)
+        if not self.speed_use_adaptive:
+            return h_edge_fix
+        h_edge_adp = self._run_adaptive_edge_path(edge_h)
+        return self.speed_fusion(h_edge_fix, h_edge_adp)
+
     def forward_v(
         self,
         speed_seq: torch.Tensor,
         temporal_feat_seq: torch.Tensor | None = None,
     ) -> torch.Tensor:
         edge_h = self.edge_proj(self._build_edge_input(speed_seq, temporal_feat_seq))
-        h_edge = self._run_fixed_edge_path(edge_h)
+        h_edge = self._run_speed_path(edge_h)
         return self.speed_head(h_edge)
 
     # ── forward ───────────────────────────────────────────────
@@ -563,8 +646,7 @@ class STGATPredictor(nn.Module):
         h_node = self.fusion(h_fix, h_adp)                          # (B, N, C)
 
         # ── Edge path ──
-        h_edge_fix = self._run_fixed_edge_path(edge_h)
-        h_edge = h_edge_fix
+        h_edge = self._run_speed_path(edge_h)
 
         # ── 輸出 ──
         demand_pred = self.demand_head(h_node)                       # (B, N, p)
