@@ -18,6 +18,8 @@ SCRIPT_DIR="${SLURM_SUBMIT_DIR:-$PWD}"
 ENV_NAME="${CONDA_ENV_NAME:-sdtr-stgat-h200}"
 BATCH_SIZE="${BATCH_SIZE:-32}"
 EPOCHS="${EPOCHS:-100}"
+LR="${LR:-1e-3}"
+MAX_TIME_STEPS="${MAX_TIME_STEPS:-0}"
 PRECISION="${PRECISION:-bf16}"
 VAL_INTERVAL="${VAL_INTERVAL:-5}"
 COMPILE="${COMPILE:-0}"
@@ -48,6 +50,8 @@ echo "run_dir=${RUN_DIR}"
 echo "env_name=${ENV_NAME}"
 echo "batch_size=${BATCH_SIZE}"
 echo "epochs=${EPOCHS}"
+echo "lr=${LR}"
+echo "max_time_steps=${MAX_TIME_STEPS}"
 echo "precision=${PRECISION}"
 echo "val_interval=${VAL_INTERVAL}"
 echo "compile=${COMPILE}"
@@ -71,12 +75,17 @@ TRAIN_ARGS=(
   --precision "$PRECISION"
   --batch-size "$BATCH_SIZE"
   --epochs "$EPOCHS"
+  --lr "$LR"
   --val-interval "$VAL_INTERVAL"
   --num-st-blocks "$NUM_ST_BLOCKS"
   --adaptive-topk "$ADAPTIVE_TOPK"
   --train-task v
   --monitor-task v
 )
+
+if [[ "$MAX_TIME_STEPS" != "0" ]]; then
+  TRAIN_ARGS+=(--max-time-steps "$MAX_TIME_STEPS")
+fi
 
 if [[ "$COMPILE" == "1" ]]; then
   TRAIN_ARGS+=(--compile --compile-mode "$COMPILE_MODE")

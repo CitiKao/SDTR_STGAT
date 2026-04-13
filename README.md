@@ -23,6 +23,8 @@
   H200 Slurm entrypoint for `DC` training.
 - `submit_nano5_stgat_v.slurm`
   H200 Slurm entrypoint for `V` training.
+- `H200_V_SWEEP_COMMANDS.md`
+  Dedicated H200 smoke / pilot / extended command handbook for the `V` branch.
 - `run_local_dc_3060.ps1`
   Local RTX 3060 runner for `DC`.
 - `run_local_v_3060.ps1`
@@ -173,10 +175,35 @@ Common overridable variables:
 
 - `BATCH_SIZE`
 - `EPOCHS`
+- `LR`
+- `MAX_TIME_STEPS`
 - `PRECISION`
 - `NUM_ST_BLOCKS`
 - `ADAPTIVE_TOPK`
 - `RUN_PREFIX`
+
+### V H200 Sweep Workflow
+
+This branch is the V-specific H200 sweep surface.
+
+Use:
+
+- `submit_nano5_stgat_v.slurm`
+- `H200_V_SWEEP_COMMANDS.md`
+
+The command handbook is organized into:
+
+- `smoke`
+- `pilot`
+- `extended`
+
+and every command explicitly shows:
+
+- `TRAIN_TASK=v`
+- `MONITOR_TASK=v`
+- `BATCH_SIZE`
+- `EPOCHS`
+- `LR`
 
 Both Slurm scripts are configured for:
 
