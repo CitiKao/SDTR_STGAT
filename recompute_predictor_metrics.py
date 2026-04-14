@@ -27,13 +27,19 @@ from train_predictor import (
     configure_cuda_runtime,
     evaluate_loader,
     evaluate_loader_raw_metrics,
+    extract_report_horizons,
     filter_normalized_losses,
     filter_raw_metrics,
+    filter_raw_metrics_per_step,
+    filter_raw_metrics_report,
+    infer_time_slot_minutes,
     load_time_meta_for_training,
     optimized_tasks_for_mode,
+    parse_report_horizons_minutes,
     resolve_device,
     resolve_num_workers,
     resolve_precision,
+    resolve_report_horizons,
 )
 
 
@@ -130,6 +136,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir", type=str, default="data")
     p.add_argument("--max-time-steps", type=int, default=0)
     p.add_argument(
+        "--report-horizons-minutes",
+        type=str,
+        default="",
+        help="Comma-separated report horizons in minutes. Empty reuses saved metadata when available or disables report extraction.",
+    )
+    p.add_argument(
         "--edge-length-source",
         type=str,
         default="osrm",
@@ -158,10 +170,12 @@ def parse_args() -> argparse.Namespace:
         "--train-task",
         type=str,
         default="joint",
-        choices=["joint", "dc"],
+        choices=["joint", "dc", "v"],
         help="Training mode used by the checkpoint; recorded in regenerated metadata.",
     )
-    return p.parse_args()
+    args = p.parse_args()
+    args.report_horizons_minutes = parse_report_horizons_minutes(args.report_horizons_minutes)
+    return args
 
 
 def main() -> None:
@@ -235,6 +249,20 @@ def main() -> None:
 
     t_steps = int(node_feat.shape[0])
     time_meta = load_time_meta_for_training(args.data_dir, t_steps)
+    time_slot_minutes = infer_time_slot_minutes(time_meta)
+    requested_report_minutes = list(args.report_horizons_minutes)
+    if saved_meta:
+        saved_report_horizons = saved_meta.get("report_horizons")
+        if not requested_report_minutes and isinstance(saved_report_horizons, dict):
+            requested = saved_report_horizons.get("requested_minutes", [])
+            if isinstance(requested, list):
+                requested_report_minutes = [int(v) for v in requested]
+    report_horizons = resolve_report_horizons(
+        time_slot_minutes=time_slot_minutes,
+        pred_horizon=int(config["pred_horizon"]),
+        requested_minutes=requested_report_minutes,
+        strict=bool(requested_report_minutes),
+    )
     split_indices = build_monthly_split_indices(
         time_meta,
         hist_len,
@@ -327,6 +355,8 @@ def main() -> None:
         amp_enabled=amp_enabled,
         amp_dtype=amp_dtype,
         normalization_stats=normalization_stats,
+        time_slot_minutes=time_slot_minutes,
+        report_horizons=report_horizons,
     )
 
     meta = {
@@ -343,6 +373,8 @@ def main() -> None:
         "adaptive_topk": adaptive_topk,
         "pred_horizon": int(config["pred_horizon"]),
         "hist_len": hist_len,
+        "time_slot_minutes": time_slot_minutes,
+        "report_horizons": report_horizons,
         "node_feat_dim": int(config["node_feat_dim"]),
         "use_time_features": bool(time_feature_names),
         "time_feature_names": time_feature_names,
@@ -381,6 +413,9 @@ def main() -> None:
                 "loss_space": "normalized",
                 "normalized_loss": filter_normalized_losses(test_losses, train_task),
                 "raw_metrics": filter_raw_metrics(test_raw_metrics, train_task),
+                "raw_metrics_per_step": filter_raw_metrics_per_step(test_raw_metrics, train_task),
+                "raw_metrics_report": filter_raw_metrics_report(test_raw_metrics, train_task),
+                "report_horizons": extract_report_horizons(test_raw_metrics),
                 "val_normalized_loss": filter_normalized_losses(val_losses, train_task),
                 "recomputed_from_checkpoint": str(ckpt_path),
                 "selected_checkpoint": str(ckpt_path),
