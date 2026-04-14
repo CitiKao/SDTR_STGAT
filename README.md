@@ -155,12 +155,32 @@ Common overridable variables:
 - `EPOCHS`
 - `LR`
 - `MAX_TIME_STEPS`
+- `HIST_LEN`
+- `PRED_HORIZON`
+- `REPORT_HORIZONS_MINUTES`
 - `PRECISION`
 - `NUM_ST_BLOCKS`
 - `ADAPTIVE_TOPK`
 - `TRAIN_TASK`
 - `MONITOR_TASK`
 - `RUN_PREFIX`
+
+For paper-style DC reporting, the DC runner now defaults to:
+
+- `HIST_LEN=12`
+- `PRED_HORIZON=4`
+- `REPORT_HORIZONS_MINUTES=15,30,60`
+
+With 15-minute slots, this yields:
+
+- `15 min = step 1`
+- `30 min = step 2`
+- `60 min = step 4`
+
+Checkpoint selection note:
+
+- `MONITOR_TASK=dc` still selects the best checkpoint by normalized aggregate DC validation loss
+- `15/30/60` metrics are additive report outputs, not the checkpoint-selection criterion
 
 ### Train V
 
@@ -214,6 +234,19 @@ Each training run writes:
 - `stgat_meta.json`
 - `predictor_log.json`
 - `predictor_test_metrics.json`
+
+For DC runs with report horizons enabled, `predictor_test_metrics.json` now contains:
+
+- legacy aggregate `raw_metrics`
+- additive `raw_metrics_per_step`
+- additive `raw_metrics_report`
+- `report_horizons` metadata with slot/minute-to-step mapping
+
+For both `demand` and `supply`, the paper-style report horizons follow:
+
+- `15 min = step 1`
+- `30 min = step 2`
+- `60 min = step 4`
 
 ## Recompute
 

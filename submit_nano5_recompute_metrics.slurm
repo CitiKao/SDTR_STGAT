@@ -31,6 +31,7 @@ PRECISION="${PRECISION:-bf16}"
 NUM_WORKERS="${NUM_WORKERS:-4}"
 EDGE_LENGTH_SOURCE="${EDGE_LENGTH_SOURCE:-osrm}"
 HIST_LEN="${HIST_LEN:-12}"
+REPORT_HORIZONS_MINUTES="${REPORT_HORIZONS_MINUTES:-}"
 
 if [[ ! -f "$SCRIPT_DIR/recompute_predictor_metrics.py" ]]; then
   echo "Expected recompute_predictor_metrics.py under $SCRIPT_DIR" >&2
@@ -72,6 +73,7 @@ echo "precision=${PRECISION}"
 echo "num_workers=${NUM_WORKERS}"
 echo "edge_length_source=${EDGE_LENGTH_SOURCE}"
 echo "hist_len=${HIST_LEN}"
+echo "report_horizons_minutes=${REPORT_HORIZONS_MINUTES}"
 
 if ! conda env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
   echo "Conda environment '$ENV_NAME' was not found." >&2
@@ -91,6 +93,10 @@ RECOMPUTE_ARGS=(
   --edge-length-source "$EDGE_LENGTH_SOURCE"
   --hist-len "$HIST_LEN"
 )
+
+if [[ -n "$REPORT_HORIZONS_MINUTES" ]]; then
+  RECOMPUTE_ARGS+=(--report-horizons-minutes "$REPORT_HORIZONS_MINUTES")
+fi
 
 conda run --no-capture-output -n "$ENV_NAME" \
   python "$SCRIPT_DIR/recompute_predictor_metrics.py" "${RECOMPUTE_ARGS[@]}"
