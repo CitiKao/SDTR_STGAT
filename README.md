@@ -172,10 +172,27 @@ Common overridable variables:
 - `EPOCHS`
 - `LR`
 - `MAX_TIME_STEPS`
+- `HIST_LEN`
+- `PRED_HORIZON`
+- `REPORT_HORIZONS_MINUTES`
 - `PRECISION`
 - `NUM_ST_BLOCKS`
 - `ADAPTIVE_TOPK`
 - `RUN_PREFIX`
+
+### V H200 Sweep Workflow
+
+For paper-style V reporting, the V runner now defaults to:
+
+- `HIST_LEN=12`
+- `PRED_HORIZON=4`
+- `REPORT_HORIZONS_MINUTES=15,30,60`
+
+With 15-minute slots, this yields:
+
+- `15 min = step 1`
+- `30 min = step 2`
+- `60 min = step 4`
 
 ### V H200 Sweep Workflow
 
@@ -214,6 +231,13 @@ Each training run writes:
 - `stgat_meta.json`
 - `predictor_log.json`
 - `predictor_test_metrics.json`
+
+For V runs with report horizons enabled, `predictor_test_metrics.json` now contains:
+
+- legacy aggregate `raw_metrics`
+- additive `raw_metrics_per_step`
+- additive `raw_metrics_report`
+- `report_horizons` metadata with slot/minute-to-step mapping
 
 ## Recompute
 
