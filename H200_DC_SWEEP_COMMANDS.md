@@ -1,6 +1,6 @@
 # H200 DC 測試指令手冊
 
-這個分支是從 `codex/dc-training` 切出來的 DC 專用 H200 測試分支。
+這個分支現在是 `codex/dc-training` 的正式 DC 訓練分支，並保留 DC 專用 H200 指令手冊。
 
 這裡新增的內容：
 
