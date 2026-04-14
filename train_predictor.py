@@ -161,13 +161,7 @@ def skipped_loss_dict() -> dict[str, None]:
 
 
 def skipped_raw_metric_dict() -> dict[str, float | dict[str, float] | None]:
-    return {
-        "raw_dc": None,
-        "demand": None,
-        "supply": None,
-        "speed": None,
-        "report_horizons": None,
-    }
+    return {"raw_dc": None, "demand": None, "supply": None, "speed": None}
 
 
 def build_task_losses(
@@ -194,123 +188,6 @@ def optimized_tasks_for_mode(train_task: str) -> list[str]:
 
 def build_raw_dc_metric(raw_metrics: dict[str, dict[str, float]]) -> float:
     return float(raw_metrics["demand"]["rmse"] + raw_metrics["supply"]["rmse"])
-
-
-DEFAULT_V_PRED_HORIZON = 4
-DEFAULT_NON_V_PRED_HORIZON = 3
-DEFAULT_V_REPORT_HORIZONS_MINUTES = (15, 30, 60)
-
-
-def parse_report_horizons_minutes(raw_value: str) -> list[int]:
-    value = raw_value.strip()
-    if not value:
-        return []
-
-    report_minutes: list[int] = []
-    seen: set[int] = set()
-    for chunk in value.split(","):
-        minute = int(chunk.strip())
-        if minute <= 0:
-            raise ValueError("report horizon minutes must be positive integers.")
-        if minute in seen:
-            continue
-        seen.add(minute)
-        report_minutes.append(minute)
-    return report_minutes
-
-
-def infer_time_slot_minutes(time_meta: pd.DataFrame) -> int:
-    if time_meta.empty:
-        raise ValueError("time_meta is empty; cannot infer slot length.")
-    timestamps = (
-        time_meta["date"]
-        + pd.to_timedelta(time_meta["hour"], unit="h")
-        + pd.to_timedelta(time_meta["minute"], unit="m")
-    )
-    diff_minutes = timestamps.diff().dt.total_seconds().dropna() / 60.0
-    positive_diffs = diff_minutes[diff_minutes > 0]
-    if positive_diffs.empty:
-        raise ValueError("Unable to infer slot length from time_meta timestamps.")
-    slot_minutes = int(round(float(positive_diffs.mode().iloc[0])))
-    if slot_minutes <= 0:
-        raise ValueError(f"Inferred invalid slot length: {slot_minutes} minutes.")
-    return slot_minutes
-
-
-def resolve_report_horizons(
-    *,
-    time_slot_minutes: int,
-    pred_horizon: int,
-    requested_minutes: list[int],
-    strict: bool = True,
-) -> dict[str, int | list[int]]:
-    resolved_steps: list[int] = []
-    resolved_minutes: list[int] = []
-    missing_minutes: list[int] = []
-
-    for minute in requested_minutes:
-        if minute % time_slot_minutes != 0:
-            raise ValueError(
-                f"Requested report horizon {minute} min is not divisible by "
-                f"time_slot_minutes={time_slot_minutes}."
-            )
-        step = minute // time_slot_minutes
-        if step < 1 or step > pred_horizon:
-            missing_minutes.append(minute)
-            continue
-        resolved_steps.append(int(step))
-        resolved_minutes.append(int(minute))
-
-    if strict and missing_minutes:
-        missing = ", ".join(str(v) for v in missing_minutes)
-        raise ValueError(
-            "Requested report horizons exceed the available prediction horizon: "
-            f"missing [{missing}] min for pred_horizon={pred_horizon} "
-            f"with time_slot_minutes={time_slot_minutes}."
-        )
-
-    return {
-        "slot_minutes": int(time_slot_minutes),
-        "pred_horizon": int(pred_horizon),
-        "requested_minutes": [int(v) for v in requested_minutes],
-        "resolved_minutes": resolved_minutes,
-        "resolved_steps": resolved_steps,
-        "missing_minutes": missing_minutes,
-    }
-
-
-def init_raw_metric_bucket() -> dict[str, float]:
-    return {"se": 0.0, "ae": 0.0, "count": 0.0}
-
-
-def finalize_raw_metric_bucket(bucket: dict[str, float]) -> dict[str, float]:
-    count = max(bucket["count"], 1.0)
-    mse_value = bucket["se"] / count
-    mae_value = bucket["ae"] / count
-    return {
-        "mse": float(mse_value),
-        "rmse": float(np.sqrt(mse_value)),
-        "mae": float(mae_value),
-    }
-
-
-def summarize_report_metrics(
-    task_metrics: dict[str, float | dict[str, dict[str, float]] | None] | None,
-    *,
-    metric_name: str = "rmse",
-) -> str:
-    if task_metrics is None:
-        return ""
-    report_metrics = task_metrics.get("report") if isinstance(task_metrics, dict) else None
-    if not isinstance(report_metrics, dict):
-        return ""
-
-    parts: list[str] = []
-    for label, values in report_metrics.items():
-        if not isinstance(values, dict) or metric_name not in values:
-            continue
-        parts.append(f"{label}:{values[metric_name]:.3f}")
-    return " ".join(parts)
 
 
 def build_history_record(
@@ -364,12 +241,6 @@ def build_history_record(
                 ),
             }
         )
-        if val_raw_metrics["speed"] is not None:
-            report_summary = val_raw_metrics["speed"].get("report", {})
-            if isinstance(report_summary, dict):
-                for label, values in report_summary.items():
-                    if isinstance(values, dict) and "rmse" in values:
-                        record[f"val_raw_speed_rmse_{label.lower()}"] = round(values["rmse"], 5)
     return record
 
 
@@ -403,13 +274,7 @@ def format_val_message(
     if train_task == "v":
         if val_losses["v"] is None:
             return "Val=skip"
-        if val_raw_metrics["speed"] is None:
-            return f"ValV={val_losses['v']:.4f}"
-        report_summary = summarize_report_metrics(val_raw_metrics["speed"])
-        suffix = f" ValRawV={val_raw_metrics['speed']['rmse']:.3f}"
-        if report_summary:
-            suffix += f" ({report_summary})"
-        return f"ValV={val_losses['v']:.4f}{suffix}"
+        return f"ValV={val_losses['v']:.4f}"
     if val_losses["dc"] is None:
         return "Val=skip"
     if val_raw_metrics["raw_dc"] is not None:
@@ -436,73 +301,15 @@ def filter_normalized_losses(losses: dict[str, float | None], train_task: str) -
     return losses
 
 
-def _extract_overall_task_metrics(task_metrics: dict[str, float | dict[str, dict[str, float]]]) -> dict[str, float]:
-    return {
-        "mse": float(task_metrics["mse"]),
-        "rmse": float(task_metrics["rmse"]),
-        "mae": float(task_metrics["mae"]),
-    }
-
-
-def filter_raw_metrics(
-    metrics: dict[str, dict[str, float | dict[str, dict[str, float]]]],
-    train_task: str,
-) -> dict[str, dict[str, float]]:
+def filter_raw_metrics(metrics: dict[str, dict[str, float]], train_task: str) -> dict[str, dict[str, float]]:
     if train_task == "v":
-        return {"speed": _extract_overall_task_metrics(metrics["speed"])}
+        return {"speed": metrics["speed"]}
     if train_task == "dc":
         return {
-            "demand": _extract_overall_task_metrics(metrics["demand"]),
-            "supply": _extract_overall_task_metrics(metrics["supply"]),
+            "demand": metrics["demand"],
+            "supply": metrics["supply"],
         }
-    return {
-        "demand": _extract_overall_task_metrics(metrics["demand"]),
-        "supply": _extract_overall_task_metrics(metrics["supply"]),
-        "speed": _extract_overall_task_metrics(metrics["speed"]),
-    }
-
-
-def filter_raw_metrics_per_step(
-    metrics: dict[str, dict[str, float | dict[str, dict[str, float]]]],
-    train_task: str,
-) -> dict[str, dict[str, dict[str, float]]]:
-    if train_task == "v":
-        return {"speed": dict(metrics["speed"].get("per_step", {}))}
-    if train_task == "dc":
-        return {
-            "demand": dict(metrics["demand"].get("per_step", {})),
-            "supply": dict(metrics["supply"].get("per_step", {})),
-        }
-    return {
-        "demand": dict(metrics["demand"].get("per_step", {})),
-        "supply": dict(metrics["supply"].get("per_step", {})),
-        "speed": dict(metrics["speed"].get("per_step", {})),
-    }
-
-
-def filter_raw_metrics_report(
-    metrics: dict[str, dict[str, float | dict[str, dict[str, float]]]],
-    train_task: str,
-) -> dict[str, dict[str, dict[str, float]]]:
-    if train_task == "v":
-        return {"speed": dict(metrics["speed"].get("report", {}))}
-    if train_task == "dc":
-        return {
-            "demand": dict(metrics["demand"].get("report", {})),
-            "supply": dict(metrics["supply"].get("report", {})),
-        }
-    return {
-        "demand": dict(metrics["demand"].get("report", {})),
-        "supply": dict(metrics["supply"].get("report", {})),
-        "speed": dict(metrics["speed"].get("report", {})),
-    }
-
-
-def extract_report_horizons(
-    metrics: dict[str, object],
-) -> dict[str, int | list[int]] | None:
-    report_horizons = metrics.get("report_horizons")
-    return dict(report_horizons) if isinstance(report_horizons, dict) else None
+    return metrics
 
 
 def extract_temporal_context(node_seq: torch.Tensor) -> torch.Tensor | None:
@@ -591,23 +398,11 @@ def evaluate_loader_raw_metrics(
     amp_enabled: bool,
     amp_dtype: torch.dtype | None,
     normalization_stats: dict | None,
-    time_slot_minutes: int,
-    report_horizons: dict[str, int | list[int]],
-) -> dict[str, object]:
-    pred_horizon = int(report_horizons["pred_horizon"])
+) -> dict[str, dict[str, float]]:
     accum = {
-        "demand": {
-            "overall": init_raw_metric_bucket(),
-            "per_step": [init_raw_metric_bucket() for _ in range(pred_horizon)],
-        },
-        "supply": {
-            "overall": init_raw_metric_bucket(),
-            "per_step": [init_raw_metric_bucket() for _ in range(pred_horizon)],
-        },
-        "speed": {
-            "overall": init_raw_metric_bucket(),
-            "per_step": [init_raw_metric_bucket() for _ in range(pred_horizon)],
-        },
+        "demand": {"se": 0.0, "ae": 0.0, "count": 0},
+        "supply": {"se": 0.0, "ae": 0.0, "count": 0},
+        "speed": {"se": 0.0, "ae": 0.0, "count": 0},
     }
 
     with torch.inference_mode():
@@ -662,51 +457,19 @@ def evaluate_loader_raw_metrics(
 
             for name, pred_raw, tgt_raw in comparisons:
                 diff = pred_raw.astype(np.float64) - tgt_raw.astype(np.float64)
-                sq = np.square(diff)
-                abs_diff = np.abs(diff)
-                accum[name]["overall"]["se"] += float(sq.sum())
-                accum[name]["overall"]["ae"] += float(abs_diff.sum())
-                accum[name]["overall"]["count"] += float(diff.size)
+                accum[name]["se"] += float(np.square(diff).sum())
+                accum[name]["ae"] += float(np.abs(diff).sum())
+                accum[name]["count"] += int(diff.size)
 
-                for step_idx in range(diff.shape[-1]):
-                    step_sq = sq[..., step_idx]
-                    step_abs = abs_diff[..., step_idx]
-                    accum[name]["per_step"][step_idx]["se"] += float(step_sq.sum())
-                    accum[name]["per_step"][step_idx]["ae"] += float(step_abs.sum())
-                    accum[name]["per_step"][step_idx]["count"] += float(step_sq.size)
-
-    metrics: dict[str, object] = {
-        "report_horizons": dict(report_horizons),
-    }
+    metrics: dict[str, dict[str, float]] = {}
     for name, values in accum.items():
-        overall = finalize_raw_metric_bucket(values["overall"])
-        per_step: dict[str, dict[str, float]] = {}
-        for step_idx, bucket in enumerate(values["per_step"], start=1):
-            per_step[f"step_{step_idx}"] = {
-                "step": int(step_idx),
-                "minutes": int(step_idx * time_slot_minutes),
-                **finalize_raw_metric_bucket(bucket),
-            }
-
-        report_metrics: dict[str, dict[str, float]] = {}
-        resolved_steps = report_horizons.get("resolved_steps", [])
-        resolved_minutes = report_horizons.get("resolved_minutes", [])
-        if isinstance(resolved_steps, list) and isinstance(resolved_minutes, list):
-            for minute, step in zip(resolved_minutes, resolved_steps):
-                step_key = f"step_{int(step)}"
-                step_metrics = per_step[step_key]
-                report_metrics[f"{int(minute)}min"] = {
-                    "step": int(step),
-                    "minutes": int(minute),
-                    "mse": float(step_metrics["mse"]),
-                    "rmse": float(step_metrics["rmse"]),
-                    "mae": float(step_metrics["mae"]),
-                }
-
+        count = max(values["count"], 1)
+        mse_value = values["se"] / count
+        mae_value = values["ae"] / count
         metrics[name] = {
-            **overall,
-            "per_step": per_step,
-            "report": report_metrics,
+            "mse": float(mse_value),
+            "rmse": float(np.sqrt(mse_value)),
+            "mae": float(mae_value),
         }
     return metrics
 
@@ -718,8 +481,6 @@ def train(args: argparse.Namespace) -> None:
         raise SystemExit("--train-task dc only supports --monitor-task dc/raw_dc.")
     if args.train_task == "v" and args.monitor_task != "v":
         raise SystemExit("--train-task v only supports --monitor-task v.")
-    if args.pred_horizon < 1:
-        raise SystemExit("--pred-horizon must be >= 1.")
     device = resolve_device(args.device)
     configure_cuda_runtime(device)
     precision = resolve_precision(device, args.precision)
@@ -754,19 +515,6 @@ def train(args: argparse.Namespace) -> None:
         print(f"  時間特徵: {', '.join(time_feature_names)}")
 
     time_meta = load_time_meta_for_training(args.data_dir, t_steps)
-    time_slot_minutes = infer_time_slot_minutes(time_meta)
-    report_horizons = resolve_report_horizons(
-        time_slot_minutes=time_slot_minutes,
-        pred_horizon=args.pred_horizon,
-        requested_minutes=args.report_horizons_minutes,
-        strict=bool(args.report_horizons_minutes),
-    )
-    if report_horizons["resolved_minutes"]:
-        print(
-            "  report_horizons="
-            f"{report_horizons['resolved_minutes']} min "
-            f"(steps={report_horizons['resolved_steps']}, slot={time_slot_minutes} min)"
-        )
     split_indices = build_monthly_split_indices(time_meta, args.hist_len, args.pred_horizon)
     train_time_mask = build_window_time_mask(
         t_steps,
@@ -935,8 +683,7 @@ def train(args: argparse.Namespace) -> None:
                 lam3=lam3,
             )
             val_raw_metrics = skipped_raw_metric_dict()
-            should_compute_raw_metrics = args.monitor_task == "raw_dc" or args.train_task != "dc"
-            if should_compute_raw_metrics:
+            if args.monitor_task == "raw_dc":
                 raw_metrics = evaluate_loader_raw_metrics(
                     model,
                     val_loader,
@@ -946,21 +693,13 @@ def train(args: argparse.Namespace) -> None:
                     amp_enabled=amp_enabled,
                     amp_dtype=amp_dtype,
                     normalization_stats=normalization_stats,
-                    time_slot_minutes=time_slot_minutes,
-                    report_horizons=report_horizons,
                 )
                 val_raw_metrics = {
-                    "raw_dc": (
-                        build_raw_dc_metric(raw_metrics)
-                        if args.train_task != "v"
-                        else None
-                    ),
-                    "demand": raw_metrics["demand"] if args.train_task != "v" else None,
-                    "supply": raw_metrics["supply"] if args.train_task != "v" else None,
-                    "speed": raw_metrics["speed"] if args.train_task != "dc" else None,
-                    "report_horizons": raw_metrics["report_horizons"],
+                    "raw_dc": build_raw_dc_metric(raw_metrics),
+                    "demand": raw_metrics["demand"],
+                    "supply": raw_metrics["supply"],
+                    "speed": raw_metrics["speed"],
                 }
-            if args.monitor_task == "raw_dc":
                 monitor_value = val_raw_metrics["raw_dc"]
             else:
                 monitor_value = val_losses[args.monitor_task]
@@ -1083,8 +822,6 @@ def train(args: argparse.Namespace) -> None:
         amp_enabled=amp_enabled,
         amp_dtype=amp_dtype,
         normalization_stats=normalization_stats,
-        time_slot_minutes=time_slot_minutes,
-        report_horizons=report_horizons,
     )
     if args.train_task == "v":
         print(
@@ -1096,9 +833,6 @@ def train(args: argparse.Namespace) -> None:
             "原始尺度 Test RMSE="
             f"V:{test_raw_metrics['speed']['rmse']:.3f}"
         )
-        test_report_summary = summarize_report_metrics(test_raw_metrics["speed"])
-        if test_report_summary:
-            print(f"Paper-aligned speed RMSE={test_report_summary}")
     elif args.train_task == "dc":
         print(
             "最終 Test="
@@ -1123,9 +857,6 @@ def train(args: argparse.Namespace) -> None:
             f"C:{test_raw_metrics['supply']['rmse']:.3f} "
             f"V:{test_raw_metrics['speed']['rmse']:.3f}"
         )
-        test_report_summary = summarize_report_metrics(test_raw_metrics["speed"])
-        if test_report_summary:
-            print(f"Paper-aligned speed RMSE={test_report_summary}")
 
     # 儲存訓練資料元資訊（供 pipeline 使用）
     meta = {
@@ -1142,8 +873,6 @@ def train(args: argparse.Namespace) -> None:
         "adaptive_topk": args.adaptive_topk,
         "pred_horizon": args.pred_horizon,
         "hist_len": args.hist_len,
-        "time_slot_minutes": time_slot_minutes,
-        "report_horizons": report_horizons,
         "node_feat_dim": node_feat_dim,
         "use_time_features": bool(time_feature_names),
         "time_feature_names": time_feature_names,
@@ -1205,25 +934,12 @@ def train(args: argparse.Namespace) -> None:
                 "loss_space": "normalized",
                 "normalized_loss": filter_normalized_losses(test_losses, args.train_task),
                 "val_normalized_loss": filter_normalized_losses(selected_val_losses, args.train_task),
-                "raw_metrics": filter_raw_metrics(test_raw_metrics, args.train_task),
-                "raw_metrics_per_step": filter_raw_metrics_per_step(test_raw_metrics, args.train_task),
-                "raw_metrics_report": filter_raw_metrics_report(test_raw_metrics, args.train_task),
-                "report_horizons": extract_report_horizons(test_raw_metrics),
                 "val_raw_metrics": (
-                    filter_raw_metrics(selected_val_raw_metrics, args.train_task)
-                    if selected_val_raw_metrics["speed"] is not None or args.train_task == "dc"
+                    selected_val_raw_metrics
+                    if args.train_task != "v"
                     else None
                 ),
-                "val_raw_metrics_per_step": (
-                    filter_raw_metrics_per_step(selected_val_raw_metrics, args.train_task)
-                    if selected_val_raw_metrics["speed"] is not None or args.train_task == "dc"
-                    else None
-                ),
-                "val_raw_metrics_report": (
-                    filter_raw_metrics_report(selected_val_raw_metrics, args.train_task)
-                    if selected_val_raw_metrics["speed"] is not None or args.train_task == "dc"
-                    else None
-                ),
+                "raw_metrics": filter_raw_metrics(test_raw_metrics, args.train_task),
                 "selected_checkpoint": "stgat_best.pt",
                 "selected_checkpoint_task": args.monitor_task,
                 "selected_checkpoint_metric": best_monitor_values[args.monitor_task],
@@ -1262,18 +978,7 @@ def parse_args() -> argparse.Namespace:
         help="停用 month / weekday / slot 時間特徵，回到舊版 demand+supply 節點輸入",
     )
     p.add_argument("--hist-len", type=int, default=12, help="歷史窗口 h")
-    p.add_argument(
-        "--pred-horizon",
-        type=int,
-        default=None,
-        help="Predicted steps p; V-only defaults to 4 for 15/30/60 reporting, other modes default to 3.",
-    )
-    p.add_argument(
-        "--report-horizons-minutes",
-        type=str,
-        default=None,
-        help="Comma-separated report horizons in minutes (for example 15,30,60). Empty disables report extraction.",
-    )
+    p.add_argument("--pred-horizon", type=int, default=3, help="預測步數 p")
 
     # 模型
     p.add_argument("--hidden-dim", type=int, default=32)
@@ -1342,22 +1047,7 @@ def parse_args() -> argparse.Namespace:
         help="torch.compile 的 mode",
     )
 
-    args = p.parse_args()
-    if args.pred_horizon is None:
-        args.pred_horizon = (
-            DEFAULT_V_PRED_HORIZON
-            if args.train_task == "v"
-            else DEFAULT_NON_V_PRED_HORIZON
-        )
-
-    if args.report_horizons_minutes is None:
-        args.report_horizons_minutes = (
-            ",".join(str(v) for v in DEFAULT_V_REPORT_HORIZONS_MINUTES)
-            if args.train_task == "v"
-            else ""
-        )
-    args.report_horizons_minutes = parse_report_horizons_minutes(args.report_horizons_minutes)
-    return args
+    return p.parse_args()
 
 
 if __name__ == "__main__":
