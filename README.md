@@ -23,7 +23,7 @@
 - `submit_nano5_stgat_v.slurm`
   H200 Slurm entrypoint for `V` training.
 - `H200_V_SWEEP_COMMANDS.md`
-  Dedicated H200 smoke / pilot / extended command handbook for the `V` branch.
+  H200 command handbook for the `V` training branch.
 
 ## Tasks
 
@@ -196,7 +196,7 @@ With 15-minute slots, this yields:
 
 ### V H200 Sweep Workflow
 
-This branch is the V-specific H200 sweep surface.
+This branch is the canonical `V` training surface.
 
 Use:
 
