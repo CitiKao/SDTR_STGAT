@@ -20,6 +20,24 @@ import torch
 from torch.utils.data import Dataset
 
 
+NYC_TIME_FEATURE_MODE_CHOICES = (
+    "baseline",
+    "day_of_month",
+    "week_of_month",
+    "day_of_month_and_week_of_month",
+)
+
+
+def resolve_nyc_time_feature_mode(time_feature_mode: str) -> str:
+    mode = str(time_feature_mode).strip().lower()
+    if mode not in NYC_TIME_FEATURE_MODE_CHOICES:
+        raise ValueError(
+            "time_feature_mode must be one of "
+            + ", ".join(NYC_TIME_FEATURE_MODE_CHOICES)
+        )
+    return mode
+
+
 def edge_index_from_adjacency(adj: np.ndarray) -> np.ndarray:
     """
     與 build_speed_features.build_edge_speeds 相同順序：列優先掃描 adj[i,j]>0。
@@ -131,6 +149,22 @@ def _build_temporal_features(
             f"time_meta 行數 {len(time_meta)} 少於時間步 {num_time_steps}"
         )
     time_meta = time_meta.iloc[:num_time_steps].copy()
+    return build_temporal_features_from_time_meta(time_meta, time_feature_mode="baseline")
+
+
+def build_temporal_features_from_time_meta(
+    time_meta: "pd.DataFrame",
+    *,
+    time_feature_mode: str = "baseline",
+) -> Tuple[np.ndarray, list[str]]:
+    """
+    Build cyclical calendar features from an in-memory time_meta table.
+
+    Baseline mode preserves the original six features:
+    [month_sin, month_cos, weekday_sin, weekday_cos, slot_sin, slot_cos].
+    Optional modes append day-of-month and/or week-of-month position signals.
+    """
+    mode = resolve_nyc_time_feature_mode(time_feature_mode)
     if "date" not in time_meta.columns or "slot" not in time_meta.columns:
         raise ValueError("time_meta.csv 至少需要 date 與 slot 欄位")
 
@@ -179,6 +213,31 @@ def _build_temporal_features(
         "slot_sin",
         "slot_cos",
     ]
+
+    extra_features: list[np.ndarray] = []
+    extra_names: list[str] = []
+    if mode in {"day_of_month", "day_of_month_and_week_of_month"}:
+        day_of_month = dates.dt.day.astype(np.float32)
+        days_in_month = dates.dt.days_in_month.astype(np.float32)
+        day_angle = 2.0 * np.pi * (day_of_month - 1.0) / days_in_month
+        extra_features.extend([np.sin(day_angle), np.cos(day_angle)])
+        extra_names.extend(["day_of_month_sin", "day_of_month_cos"])
+
+    if mode in {"week_of_month", "day_of_month_and_week_of_month"}:
+        day_of_month = dates.dt.day.astype(np.float32)
+        days_in_month = dates.dt.days_in_month.astype(np.float32)
+        week_of_month = np.floor((day_of_month - 1.0) / 7.0)
+        weeks_in_month = np.floor((days_in_month - 1.0) / 7.0) + 1.0
+        week_angle = 2.0 * np.pi * week_of_month / weeks_in_month
+        extra_features.extend([np.sin(week_angle), np.cos(week_angle)])
+        extra_names.extend(["week_of_month_sin", "week_of_month_cos"])
+
+    if extra_features:
+        features = np.concatenate(
+            [features, np.stack(extra_features, axis=1).astype(np.float32)],
+            axis=1,
+        ).astype(np.float32)
+        feature_names.extend(extra_names)
     return features, feature_names
 
 

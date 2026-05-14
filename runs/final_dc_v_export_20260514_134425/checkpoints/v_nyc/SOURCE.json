@@ -1,0 +1,34 @@
+{
+  "id": "v_nyc",
+  "task": "V",
+  "dataset": "NYC V",
+  "label": "NYC V speed",
+  "run_dir": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250",
+  "metrics_path": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\predictor_test_metrics.json",
+  "note": "NYC local V best selected run",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_v.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\stgat_best.pt",
+      "bytes": 1675661
+    },
+    {
+      "kind": "stgat_best_v.pt",
+      "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\stgat_best_v.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\stgat_best_v.pt",
+      "bytes": 1676083
+    },
+    {
+      "kind": "training_state_best.pt",
+      "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\training_state_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\training_state_best.pt",
+      "bytes": 2861329
+    }
+  ]
+}

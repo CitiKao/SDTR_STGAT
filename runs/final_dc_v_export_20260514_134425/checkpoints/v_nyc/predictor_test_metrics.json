@@ -1,0 +1,193 @@
+{
+  "loss_space": "normalized",
+  "normalized_loss": {
+    "v": 0.16897277732690175,
+    "speed": 0.16897277732690175
+  },
+  "val_normalized_loss": {
+    "v": 0.17563095521451771,
+    "speed": 0.17563095521451771
+  },
+  "raw_metrics": {
+    "speed": {
+      "mse": 3.6226251433634236,
+      "rmse": 1.9033195063791637,
+      "mae": 1.0797515585886721,
+      "mape": 5.23057702936301
+    }
+  },
+  "raw_metrics_per_step": {
+    "speed": {
+      "step_1": {
+        "step": 1,
+        "minutes": 15,
+        "mse": 3.5440458989327803,
+        "rmse": 1.8825636506989027,
+        "mae": 1.0716791435857633,
+        "mape": 5.177727551331065
+      },
+      "step_2": {
+        "step": 2,
+        "minutes": 30,
+        "mse": 3.6059163909596266,
+        "rmse": 1.8989250619652231,
+        "mae": 1.0717657895789263,
+        "mape": 5.196465364861409
+      },
+      "step_3": {
+        "step": 3,
+        "minutes": 45,
+        "mse": 3.772170516183052,
+        "rmse": 1.9422076398220278,
+        "mae": 1.0959695903741737,
+        "mape": 5.322154549016502
+      },
+      "step_4": {
+        "step": 4,
+        "minutes": 60,
+        "mse": 3.568367767378238,
+        "rmse": 1.889012378831393,
+        "mae": 1.079591710815825,
+        "mape": 5.22596065224307
+      }
+    }
+  },
+  "raw_metrics_report": {
+    "speed": {
+      "15min": {
+        "step": 1,
+        "minutes": 15,
+        "mse": 3.5440458989327803,
+        "rmse": 1.8825636506989027,
+        "mae": 1.0716791435857633,
+        "mape": 5.177727551331065
+      },
+      "30min": {
+        "step": 2,
+        "minutes": 30,
+        "mse": 3.6059163909596266,
+        "rmse": 1.8989250619652231,
+        "mae": 1.0717657895789263,
+        "mape": 5.196465364861409
+      },
+      "60min": {
+        "step": 4,
+        "minutes": 60,
+        "mse": 3.568367767378238,
+        "rmse": 1.889012378831393,
+        "mae": 1.079591710815825,
+        "mape": 5.22596065224307
+      }
+    }
+  },
+  "report_horizons": {
+    "slot_minutes": 15,
+    "pred_horizon": 4,
+    "requested_minutes": [
+      15,
+      30,
+      60
+    ],
+    "resolved_minutes": [
+      15,
+      30,
+      60
+    ],
+    "resolved_steps": [
+      1,
+      2,
+      4
+    ],
+    "missing_minutes": []
+  },
+  "val_raw_metrics": {
+    "speed": {
+      "mse": 3.7024771584831955,
+      "rmse": 1.9241822051155124,
+      "mae": 1.0839267521246208,
+      "mape": 5.271402553468751
+    }
+  },
+  "val_raw_metrics_per_step": {
+    "speed": {
+      "step_1": {
+        "step": 1,
+        "minutes": 15,
+        "mse": 3.6229406032357785,
+        "rmse": 1.9034023755464262,
+        "mae": 1.0756801622446557,
+        "mape": 5.216626524014412
+      },
+      "step_2": {
+        "step": 2,
+        "minutes": 30,
+        "mse": 3.687077183313065,
+        "rmse": 1.920176341723089,
+        "mae": 1.0760206720495262,
+        "mape": 5.236557237155444
+      },
+      "step_3": {
+        "step": 3,
+        "minutes": 45,
+        "mse": 3.851400267149078,
+        "rmse": 1.9624984757061794,
+        "mae": 1.1001381996963513,
+        "mape": 5.3629233111987284
+      },
+      "step_4": {
+        "step": 4,
+        "minutes": 60,
+        "mse": 3.6484905802348573,
+        "rmse": 1.9101022433982056,
+        "mae": 1.0838679745079496,
+        "mape": 5.269503141506429
+      }
+    }
+  },
+  "val_raw_metrics_report": {
+    "speed": {
+      "15min": {
+        "step": 1,
+        "minutes": 15,
+        "mse": 3.6229406032357785,
+        "rmse": 1.9034023755464262,
+        "mae": 1.0756801622446557,
+        "mape": 5.216626524014412
+      },
+      "30min": {
+        "step": 2,
+        "minutes": 30,
+        "mse": 3.687077183313065,
+        "rmse": 1.920176341723089,
+        "mae": 1.0760206720495262,
+        "mape": 5.236557237155444
+      },
+      "60min": {
+        "step": 4,
+        "minutes": 60,
+        "mse": 3.6484905802348573,
+        "rmse": 1.9101022433982056,
+        "mae": 1.0838679745079496,
+        "mape": 5.269503141506429
+      }
+    }
+  },
+  "selected_checkpoint": "stgat_best.pt",
+  "selected_checkpoint_task": "v",
+  "selected_checkpoint_metric_name": "normalized_loss",
+  "selected_checkpoint_metric": 0.17563095521451771,
+  "train_task": "v",
+  "use_time_features": true,
+  "time_feature_mode": "baseline",
+  "time_feature_names": [
+    "month_sin",
+    "month_cos",
+    "weekday_sin",
+    "weekday_cos",
+    "slot_sin",
+    "slot_cos"
+  ],
+  "speed_use_adaptive": true,
+  "speed_adaptive_topk": 20,
+  "speed_topology_mode": "fixed_plus_adaptive_fusion"
+}

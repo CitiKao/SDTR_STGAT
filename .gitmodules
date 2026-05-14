@@ -1,0 +1,15 @@
+[submodule "dc_benchmark/external_github_reimplementations/ConvLSTM_pytorch"]
+	path = dc_benchmark/external_github_reimplementations/ConvLSTM_pytorch
+	url = https://github.com/ndrplz/ConvLSTM_pytorch
+[submodule "dc_benchmark/external_github_reimplementations/ST-ResNet"]
+	path = dc_benchmark/external_github_reimplementations/ST-ResNet
+	url = https://github.com/topazape/ST-ResNet
+[submodule "external_official_code/DCRNN"]
+	path = external_official_code/DCRNN
+	url = https://github.com/liyaguang/DCRNN.git
+[submodule "external_official_code/Graph-WaveNet"]
+	path = external_official_code/Graph-WaveNet
+	url = https://github.com/nnzhan/Graph-WaveNet.git
+[submodule "external_official_code/STGCN_IJCAI-18"]
+	path = external_official_code/STGCN_IJCAI-18
+	url = https://github.com/VeritasYin/STGCN_IJCAI-18.git

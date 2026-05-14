@@ -1,0 +1,34 @@
+{
+  "id": "dc_nyc",
+  "task": "DC",
+  "dataset": "NYC",
+  "label": "NYC DC",
+  "run_dir": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45",
+  "metrics_path": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\predictor_test_metrics.json",
+  "note": "final continue to 200; selected from DC_final_002_continue_to200 summary",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_raw_dc.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\stgat_best.pt",
+      "bytes": 2032539
+    },
+    {
+      "kind": "stgat_best_raw_dc.pt",
+      "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\stgat_best_raw_dc.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\stgat_best_raw_dc.pt",
+      "bytes": 2033730
+    },
+    {
+      "kind": "training_state_best.pt",
+      "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\training_state_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\training_state_best.pt",
+      "bytes": 3829105
+    }
+  ]
+}

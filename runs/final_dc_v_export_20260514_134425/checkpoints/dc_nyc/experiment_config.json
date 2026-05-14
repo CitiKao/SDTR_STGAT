@@ -1,0 +1,21 @@
+﻿{
+    "stage_index":  4,
+    "stage_name":  "final",
+    "ordinal":  2,
+    "run_id":  "s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45",
+    "train_task":  "dc",
+    "monitor_task":  "raw_dc",
+    "batch_size":  32,
+    "topk":  16,
+    "hist_len":  16,
+    "lr":  "1e-3",
+    "weight_decay":  "1e-5",
+    "hidden_dim":  48,
+    "num_st_blocks":  2,
+    "time_feature_mode":  "baseline",
+    "seed":  42,
+    "epochs":  45,
+    "val_interval":  1,
+    "pred_horizon":  4,
+    "report_horizons_minutes":  "15,30,60"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "dc_shenzhen",
+  "task": "DC",
+  "dataset": "Shenzhen",
+  "label": "Shenzhen DC",
+  "run_dir": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final",
+  "metrics_path": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\predictor_test_metrics.json",
+  "note": "val-selected group6; continued to 200 epochs",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_raw_dc.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shenzhen\\stgat_best.pt",
+      "bytes": 3014811
+    },
+    {
+      "kind": "stgat_best_raw_dc.pt",
+      "source": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\stgat_best_raw_dc.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shenzhen\\stgat_best_raw_dc.pt",
+      "bytes": 3016002
+    }
+  ]
+}

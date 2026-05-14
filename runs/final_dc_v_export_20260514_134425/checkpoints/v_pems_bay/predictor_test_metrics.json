@@ -1,0 +1,468 @@
+{
+  "loss_space": "normalized",
+  "normalized_loss": {
+    "v": 0.17060752977874685,
+    "speed": 0.17060752977874685
+  },
+  "val_normalized_loss": {
+    "v": 0.18274746598008107,
+    "speed": 0.18274746598008107
+  },
+  "raw_metrics": {
+    "speed": {
+      "mse": 10.960524520072807,
+      "rmse": 3.3106682890426833,
+      "mae": 1.5899876264316495,
+      "mape": 3.3740422759991855
+    }
+  },
+  "raw_metrics_per_step": {
+    "speed": {
+      "step_1": {
+        "step": 1,
+        "minutes": 5,
+        "mse": 2.404218361516928,
+        "rmse": 1.550554211086129,
+        "mae": 0.8987485524204518,
+        "mape": 1.7005174545388835
+      },
+      "step_2": {
+        "step": 2,
+        "minutes": 10,
+        "mse": 4.695879627394583,
+        "rmse": 2.1669978374226826,
+        "mae": 1.1525422447174536,
+        "mape": 2.271374878350868
+      },
+      "step_3": {
+        "step": 3,
+        "minutes": 15,
+        "mse": 6.908007041883422,
+        "rmse": 2.6283087797828135,
+        "mae": 1.3309061855747466,
+        "mape": 2.7023618613760454
+      },
+      "step_4": {
+        "step": 4,
+        "minutes": 20,
+        "mse": 8.813490718724067,
+        "rmse": 2.9687523842052013,
+        "mae": 1.463562550316197,
+        "mape": 3.0350205276197455
+      },
+      "step_5": {
+        "step": 5,
+        "minutes": 25,
+        "mse": 10.362375728945521,
+        "rmse": 3.219064418265891,
+        "mae": 1.5643304567979857,
+        "mape": 3.2919604878722835
+      },
+      "step_6": {
+        "step": 6,
+        "minutes": 30,
+        "mse": 11.62164187671203,
+        "rmse": 3.409052929584994,
+        "mae": 1.6465970955603897,
+        "mape": 3.5006906495319328
+      },
+      "step_7": {
+        "step": 7,
+        "minutes": 35,
+        "mse": 12.657133386386308,
+        "rmse": 3.557686521657903,
+        "mae": 1.7142751880368625,
+        "mape": 3.677785273502273
+      },
+      "step_8": {
+        "step": 8,
+        "minutes": 40,
+        "mse": 13.51870022529193,
+        "rmse": 3.676778511862243,
+        "mae": 1.7705699879741643,
+        "mape": 3.822978303787693
+      },
+      "step_9": {
+        "step": 9,
+        "minutes": 45,
+        "mse": 14.247730970203543,
+        "rmse": 3.7746166653321955,
+        "mae": 1.8191830759018157,
+        "mape": 3.9530340936650776
+      },
+      "step_10": {
+        "step": 10,
+        "minutes": 50,
+        "mse": 14.867139491065338,
+        "rmse": 3.855792978242652,
+        "mae": 1.8672296035308094,
+        "mape": 4.074359420074945
+      },
+      "step_11": {
+        "step": 11,
+        "minutes": 55,
+        "mse": 15.433435774981495,
+        "rmse": 3.9285411764396074,
+        "mae": 1.9051080517148173,
+        "mape": 4.175542417376695
+      },
+      "step_12": {
+        "step": 12,
+        "minutes": 60,
+        "mse": 15.996541037768589,
+        "rmse": 3.99956760635054,
+        "mae": 1.9467985246341006,
+        "mape": 4.282881944293802
+      }
+    }
+  },
+  "raw_metrics_report": {
+    "speed": {
+      "15min": {
+        "step": 3,
+        "minutes": 15,
+        "mse": 6.908007041883422,
+        "rmse": 2.6283087797828135,
+        "mae": 1.3309061855747466,
+        "mape": 2.7023618613760454
+      },
+      "30min": {
+        "step": 6,
+        "minutes": 30,
+        "mse": 11.62164187671203,
+        "rmse": 3.409052929584994,
+        "mae": 1.6465970955603897,
+        "mape": 3.5006906495319328
+      },
+      "60min": {
+        "step": 12,
+        "minutes": 60,
+        "mse": 15.996541037768589,
+        "rmse": 3.99956760635054,
+        "mae": 1.9467985246341006,
+        "mape": 4.282881944293802
+      }
+    }
+  },
+  "report_horizons": {
+    "slot_minutes": 5,
+    "pred_horizon": 12,
+    "requested_minutes": [
+      15,
+      30,
+      60
+    ],
+    "resolved_minutes": [
+      15,
+      30,
+      60
+    ],
+    "resolved_steps": [
+      3,
+      6,
+      12
+    ],
+    "missing_minutes": []
+  },
+  "val_raw_metrics": {
+    "speed": {
+      "mse": 11.978865566570368,
+      "rmse": 3.4610497781121796,
+      "mae": 1.7022003420581835,
+      "mape": 3.598656879738765
+    }
+  },
+  "val_raw_metrics_per_step": {
+    "speed": {
+      "step_1": {
+        "step": 1,
+        "minutes": 5,
+        "mse": 2.5456671270067077,
+        "rmse": 1.595514690313664,
+        "mae": 0.9340870172163299,
+        "mape": 1.7742974824611182
+      },
+      "step_2": {
+        "step": 2,
+        "minutes": 10,
+        "mse": 5.018782479894432,
+        "rmse": 2.2402639308560124,
+        "mae": 1.2095991654665432,
+        "mape": 2.388303759299962
+      },
+      "step_3": {
+        "step": 3,
+        "minutes": 15,
+        "mse": 7.455583935548829,
+        "rmse": 2.7304915190399015,
+        "mae": 1.409612431828974,
+        "mape": 2.8649514002601864
+      },
+      "step_4": {
+        "step": 4,
+        "minutes": 20,
+        "mse": 9.574140344250672,
+        "rmse": 3.09421077889834,
+        "mae": 1.5597185784157797,
+        "mape": 3.2348673815390083
+      },
+      "step_5": {
+        "step": 5,
+        "minutes": 25,
+        "mse": 11.30667649731734,
+        "rmse": 3.3625401852345704,
+        "mae": 1.674927754792609,
+        "mape": 3.5203751367923872
+      },
+      "step_6": {
+        "step": 6,
+        "minutes": 30,
+        "mse": 12.711351797447723,
+        "rmse": 3.5652982760840253,
+        "mae": 1.76704762647809,
+        "mape": 3.7476693135854373
+      },
+      "step_7": {
+        "step": 7,
+        "minutes": 35,
+        "mse": 13.873527320601955,
+        "rmse": 3.7247184216530993,
+        "mae": 1.843608915844384,
+        "mape": 3.940349378582366
+      },
+      "step_8": {
+        "step": 8,
+        "minutes": 40,
+        "mse": 14.829028329691251,
+        "rmse": 3.8508477416915943,
+        "mae": 1.9065684743377016,
+        "mape": 4.095268792001464
+      },
+      "step_9": {
+        "step": 9,
+        "minutes": 45,
+        "mse": 15.623639316178597,
+        "rmse": 3.9526749570611797,
+        "mae": 1.9594782891587137,
+        "mape": 4.230515527757371
+      },
+      "step_10": {
+        "step": 10,
+        "minutes": 50,
+        "mse": 16.30044195002127,
+        "rmse": 4.037380580279901,
+        "mae": 2.010886365482458,
+        "mape": 4.354869823643063
+      },
+      "step_11": {
+        "step": 11,
+        "minutes": 55,
+        "mse": 16.936841641044655,
+        "rmse": 4.115439422594464,
+        "mae": 2.0529372097440044,
+        "mape": 4.461008113972068
+      },
+      "step_12": {
+        "step": 12,
+        "minutes": 60,
+        "mse": 17.57070605984093,
+        "rmse": 4.191742604197081,
+        "mae": 2.0979322759326133,
+        "mape": 4.571406446970748
+      }
+    }
+  },
+  "val_raw_metrics_report": {
+    "speed": {
+      "15min": {
+        "step": 3,
+        "minutes": 15,
+        "mse": 7.455583935548829,
+        "rmse": 2.7304915190399015,
+        "mae": 1.409612431828974,
+        "mape": 2.8649514002601864
+      },
+      "30min": {
+        "step": 6,
+        "minutes": 30,
+        "mse": 12.711351797447723,
+        "rmse": 3.5652982760840253,
+        "mae": 1.76704762647809,
+        "mape": 3.7476693135854373
+      },
+      "60min": {
+        "step": 12,
+        "minutes": 60,
+        "mse": 17.57070605984093,
+        "rmse": 4.191742604197081,
+        "mae": 2.0979322759326133,
+        "mape": 4.571406446970748
+      }
+    }
+  },
+  "selected_checkpoint": "stgat_best.pt",
+  "selected_checkpoint_task": "v",
+  "selected_checkpoint_metric_name": "val_raw_speed_rmse",
+  "selected_checkpoint_metric": 3.4610834765857716,
+  "train_task": "v",
+  "split_strategy": "per_month_day_1_20_train_21_24_val_25_plus_test_full_window_containment",
+  "split_description": "Per-month days 1-20 train / 21-24 val / 25+ test with full history+target window containment.",
+  "training_control": {
+    "configured_epochs": 60,
+    "completed_epochs": 60,
+    "completed_validations": 60,
+    "completed_full_budget": true,
+    "training_end_reason": "epoch_budget_exhausted",
+    "early_stopping": {
+      "enabled": false,
+      "patience": 0,
+      "min_epochs": 0,
+      "triggered": false
+    }
+  },
+  "speed_use_adaptive": true,
+  "fixed_graph_weighted": false,
+  "use_fixed_edge_length_feature": true,
+  "fixed_edge_length_feature_mode": "external_map_directed_route_distance_km_between_snapped_sensor_points",
+  "use_speed_history_mask": false,
+  "history_missing_mode": "zero_fill_no_mask",
+  "representation_domain": "sensor_node",
+  "representation_variant_id": "sensor_node__map_route__base-official_adj_pkl",
+  "v_domain": "node",
+  "speed_topology_mode": "sensor_node_graph",
+  "speed_metric_protocol": "masked_zero_excluded",
+  "processed_dataset_fingerprint": "efb72ef4b2a578bf9578924949750309c71b6dcebc07701783fd965aa0fba25f",
+  "preprocessing_variant_id": "train_quantile_clip_q0p01_0p99_masked_zero_excluded",
+  "optimizer": {
+    "name": "Adam",
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "warmup_epochs": 0,
+    "grad_clip_norm": 5.0,
+    "train_scope": "speed_node_path_only"
+  },
+  "scheduler": {
+    "name": "ReduceLROnPlateau",
+    "monitor": "val_loss",
+    "factor": 0.5,
+    "patience": 6,
+    "cooldown": 1,
+    "min_lr": 1e-05
+  },
+  "split_summary": {
+    "mode": "project_monthly",
+    "rule": {
+      "train": "days 1-20",
+      "val": "days 21-24",
+      "test": "days 25+"
+    },
+    "calendar": {
+      "train": {
+        "first_labeled_timestamp": "2017-01-01T00:00:00",
+        "last_labeled_timestamp": "2017-06-20T23:55:00",
+        "first_window_start_timestamp": "2017-01-01T00:00:00",
+        "last_window_start_timestamp": "2017-06-20T21:50:00",
+        "first_target_timestamp": "2017-01-01T01:10:00",
+        "last_target_timestamp": "2017-06-20T23:55:00",
+        "months": [
+          "2017-01",
+          "2017-02",
+          "2017-03",
+          "2017-04",
+          "2017-05",
+          "2017-06"
+        ],
+        "weekday_counts": {
+          "Friday": 4896,
+          "Monday": 5184,
+          "Saturday": 4896,
+          "Sunday": 4884,
+          "Thursday": 5184,
+          "Tuesday": 4608,
+          "Wednesday": 4896
+        }
+      },
+      "val": {
+        "first_labeled_timestamp": "2017-01-21T00:00:00",
+        "last_labeled_timestamp": "2017-06-24T23:55:00",
+        "first_window_start_timestamp": "2017-01-21T00:00:00",
+        "last_window_start_timestamp": "2017-06-24T21:50:00",
+        "first_target_timestamp": "2017-01-21T01:10:00",
+        "last_target_timestamp": "2017-06-24T23:55:00",
+        "months": [
+          "2017-01",
+          "2017-02",
+          "2017-03",
+          "2017-04",
+          "2017-05",
+          "2017-06"
+        ],
+        "weekday_counts": {
+          "Friday": 1152,
+          "Monday": 864,
+          "Saturday": 864,
+          "Sunday": 864,
+          "Thursday": 864,
+          "Tuesday": 1152,
+          "Wednesday": 1152
+        }
+      },
+      "test": {
+        "first_labeled_timestamp": "2017-01-25T00:00:00",
+        "last_labeled_timestamp": "2017-06-30T23:55:00",
+        "first_window_start_timestamp": "2017-01-25T00:00:00",
+        "last_window_start_timestamp": "2017-06-30T21:50:00",
+        "first_target_timestamp": "2017-01-25T01:10:00",
+        "last_target_timestamp": "2017-06-30T23:55:00",
+        "months": [
+          "2017-01",
+          "2017-02",
+          "2017-03",
+          "2017-04",
+          "2017-05",
+          "2017-06"
+        ],
+        "weekday_counts": {
+          "Friday": 1440,
+          "Monday": 1440,
+          "Saturday": 1440,
+          "Sunday": 1728,
+          "Thursday": 1440,
+          "Tuesday": 1728,
+          "Wednesday": 1440
+        }
+      }
+    }
+  },
+  "outlier_cleaning": {
+    "mode": "train_quantile_clip",
+    "replacement": "clip",
+    "num_flagged": 318695,
+    "flagged_ratio_all": 0.018815718781180445,
+    "flagged_ratio_valid": 0.018816297566436536,
+    "enabled": true,
+    "method": "train_quantile_clip",
+    "fit_scope": "train_history_only",
+    "apply_scope": "all_valid_points",
+    "replace_strategy": "clip",
+    "params": {
+      "lower_quantile": 0.01,
+      "upper_quantile": 0.99
+    },
+    "cleaned_points": 318695,
+    "cleaned_ratio": 0.018816297566436536,
+    "train_valid_counts_min": 34472,
+    "train_valid_counts_max": 34476,
+    "sensors_without_train_valid": 0,
+    "mask_path": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60\\speed_outlier_mask.npy"
+  },
+  "benchmark_comparability": {
+    "profile": "cleaned_train_quantile_clip",
+    "is_official_like": false,
+    "deviations": [
+      "train-only quantile clipping applied before normalization",
+      "project monthly split used instead of external benchmark contiguous split",
+      "custom STGAT adaptation rather than the original benchmark model"
+    ]
+  }
+}

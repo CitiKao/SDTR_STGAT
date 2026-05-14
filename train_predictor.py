@@ -136,6 +136,245 @@ def build_monthly_split_indices(
     return splits
 
 
+SPLIT_ALIGNMENT_MODES = ("none", "day", "week", "month")
+
+
+def build_time_meta_timestamps(time_meta: pd.DataFrame) -> pd.Series:
+    if "timestamp" in time_meta.columns:
+        return pd.to_datetime(time_meta["timestamp"], errors="raise")
+    if not {"date", "hour", "minute"}.issubset(time_meta.columns):
+        raise ValueError("time_meta must contain timestamp or date/hour/minute columns")
+    dates = pd.to_datetime(time_meta["date"], errors="raise")
+    hours = pd.to_numeric(time_meta["hour"], errors="raise")
+    minutes = pd.to_numeric(time_meta["minute"], errors="raise")
+    return dates + pd.to_timedelta(hours, unit="h") + pd.to_timedelta(minutes, unit="m")
+
+
+def validate_split_alignment(mode: str) -> str:
+    cleaned = str(mode).strip().lower()
+    if cleaned not in SPLIT_ALIGNMENT_MODES:
+        raise ValueError(
+            f"Unsupported split alignment '{mode}'. Expected one of: {', '.join(SPLIT_ALIGNMENT_MODES)}."
+        )
+    return cleaned
+
+
+def is_matching_split_boundary(timestamp: pd.Timestamp, mode: str) -> bool:
+    if mode == "none":
+        return True
+    ts = pd.Timestamp(timestamp)
+    is_day_start = bool(
+        ts.hour == 0
+        and ts.minute == 0
+        and ts.second == 0
+        and ts.microsecond == 0
+        and ts.nanosecond == 0
+    )
+    if not is_day_start:
+        return False
+    if mode == "day":
+        return True
+    if mode == "week":
+        return ts.weekday() == 0
+    if mode == "month":
+        return ts.day == 1
+    raise ValueError(f"Unsupported split alignment '{mode}'.")
+
+
+def align_split_boundary_index(
+    timestamps: pd.Series,
+    *,
+    raw_index: int,
+    mode: str,
+    lower_bound: int,
+    upper_bound: int,
+) -> tuple[int, dict[str, object]]:
+    cleaned_mode = validate_split_alignment(mode)
+    clipped_index = int(min(max(raw_index, lower_bound), upper_bound))
+    raw_ts = pd.Timestamp(timestamps.iloc[clipped_index])
+    if cleaned_mode == "none":
+        return clipped_index, {
+            "mode": cleaned_mode,
+            "raw_index": int(raw_index),
+            "effective_index": clipped_index,
+            "shift_steps": int(clipped_index - raw_index),
+            "raw_timestamp": raw_ts.isoformat(),
+            "effective_timestamp": raw_ts.isoformat(),
+            "matched_boundary": True,
+            "fallback_used": False,
+        }
+
+    candidates = [
+        idx
+        for idx in range(int(lower_bound), int(upper_bound) + 1)
+        if is_matching_split_boundary(pd.Timestamp(timestamps.iloc[idx]), cleaned_mode)
+    ]
+    if not candidates:
+        return clipped_index, {
+            "mode": cleaned_mode,
+            "raw_index": int(raw_index),
+            "effective_index": clipped_index,
+            "shift_steps": int(clipped_index - raw_index),
+            "raw_timestamp": raw_ts.isoformat(),
+            "effective_timestamp": raw_ts.isoformat(),
+            "matched_boundary": False,
+            "fallback_used": True,
+        }
+
+    effective_index = min(
+        candidates,
+        key=lambda idx: (abs(int(idx) - int(raw_index)), int(idx) < int(raw_index), int(idx)),
+    )
+    effective_ts = pd.Timestamp(timestamps.iloc[effective_index])
+    return int(effective_index), {
+        "mode": cleaned_mode,
+        "raw_index": int(raw_index),
+        "effective_index": int(effective_index),
+        "shift_steps": int(effective_index - raw_index),
+        "raw_timestamp": raw_ts.isoformat(),
+        "effective_timestamp": effective_ts.isoformat(),
+        "matched_boundary": True,
+        "fallback_used": False,
+    }
+
+
+def build_split_boundary_summary(
+    timestamps: pd.Series,
+    *,
+    alignment: str,
+    train_end_raw: int,
+    val_end_raw: int,
+    train_end: int,
+    val_end: int,
+) -> dict[str, object]:
+    ts = pd.Series(pd.to_datetime(timestamps)).reset_index(drop=True)
+
+    def summarize_segment(start_idx: int, end_idx: int) -> dict[str, object]:
+        segment = ts.iloc[start_idx:end_idx]
+        if segment.empty:
+            return {
+                "start": None,
+                "end": None,
+                "start_weekday": None,
+                "end_weekday": None,
+                "months": [],
+                "weekday_counts": {},
+            }
+        return {
+            "start": pd.Timestamp(segment.iloc[0]).isoformat(),
+            "end": pd.Timestamp(segment.iloc[-1]).isoformat(),
+            "start_weekday": str(pd.Timestamp(segment.iloc[0]).day_name()),
+            "end_weekday": str(pd.Timestamp(segment.iloc[-1]).day_name()),
+            "months": sorted(segment.dt.to_period("M").astype(str).unique().tolist()),
+            "weekday_counts": {
+                str(key): int(value)
+                for key, value in segment.dt.day_name().value_counts().sort_index().items()
+            },
+        }
+
+    return {
+        "mode": "contiguous_ratio_70_10_20",
+        "alignment": validate_split_alignment(alignment),
+        "raw_boundaries": {
+            "train_end_index": int(train_end_raw),
+            "val_end_index": int(val_end_raw),
+            "train_boundary_timestamp": pd.Timestamp(ts.iloc[min(max(train_end_raw, 0), len(ts) - 1)]).isoformat(),
+            "val_boundary_timestamp": pd.Timestamp(ts.iloc[min(max(val_end_raw, 0), len(ts) - 1)]).isoformat(),
+        },
+        "effective_boundaries": {
+            "train_end_index": int(train_end),
+            "val_end_index": int(val_end),
+            "train_last_timestamp": pd.Timestamp(ts.iloc[max(train_end - 1, 0)]).isoformat(),
+            "val_first_timestamp": pd.Timestamp(ts.iloc[min(train_end, len(ts) - 1)]).isoformat(),
+            "val_last_timestamp": pd.Timestamp(ts.iloc[max(val_end - 1, 0)]).isoformat(),
+            "test_first_timestamp": pd.Timestamp(ts.iloc[min(val_end, len(ts) - 1)]).isoformat(),
+        },
+        "calendar": {
+            "train": summarize_segment(0, train_end),
+            "val": summarize_segment(train_end, val_end),
+            "test": summarize_segment(val_end, len(ts)),
+        },
+    }
+
+
+def resolve_split_boundaries(
+    time_meta: pd.DataFrame,
+    *,
+    alignment: str,
+) -> tuple[int, int, dict[str, object]]:
+    timestamps = build_time_meta_timestamps(time_meta).reset_index(drop=True)
+    num_time_steps = int(len(timestamps))
+    if num_time_steps < 3:
+        raise ValueError("Need at least 3 time steps to build contiguous splits")
+    raw_train_end = round(num_time_steps * 0.7)
+    raw_val_end = round(num_time_steps * 0.8)
+    cleaned_alignment = validate_split_alignment(alignment)
+    train_end, train_alignment = align_split_boundary_index(
+        timestamps,
+        raw_index=raw_train_end,
+        mode=cleaned_alignment,
+        lower_bound=1,
+        upper_bound=max(num_time_steps - 2, 1),
+    )
+    val_end, val_alignment = align_split_boundary_index(
+        timestamps,
+        raw_index=raw_val_end,
+        mode=cleaned_alignment,
+        lower_bound=min(max(train_end + 1, 1), max(num_time_steps - 1, 1)),
+        upper_bound=max(num_time_steps - 1, 1),
+    )
+    if val_end <= train_end:
+        val_end = min(max(train_end + 1, 1), max(num_time_steps - 1, 1))
+        val_alignment = {
+            **val_alignment,
+            "effective_index": int(val_end),
+            "effective_timestamp": pd.Timestamp(timestamps.iloc[val_end]).isoformat(),
+            "shift_steps": int(val_end - raw_val_end),
+            "fallback_used": True,
+            "matched_boundary": False,
+        }
+
+    summary = build_split_boundary_summary(
+        timestamps,
+        alignment=cleaned_alignment,
+        train_end_raw=raw_train_end,
+        val_end_raw=raw_val_end,
+        train_end=train_end,
+        val_end=val_end,
+    )
+    summary["alignment_details"] = {
+        "train_boundary": train_alignment,
+        "val_boundary": val_alignment,
+    }
+    return int(train_end), int(val_end), summary
+
+
+def build_time_contained_split_indices(
+    num_time_steps: int,
+    *,
+    hist_len: int,
+    pred_horizon: int,
+    train_end: int | None = None,
+    val_end: int | None = None,
+) -> dict[str, list[int]]:
+    if train_end is None:
+        train_end = round(num_time_steps * 0.7)
+    if val_end is None:
+        val_end = round(num_time_steps * 0.8)
+    total_samples = num_time_steps - hist_len - pred_horizon + 1
+    window_len = hist_len + pred_horizon
+    splits = {"train": [], "val": [], "test": []}
+    for idx in range(max(total_samples, 0)):
+        end = idx + window_len
+        if end <= train_end:
+            splits["train"].append(idx)
+        elif idx >= train_end and end <= val_end:
+            splits["val"].append(idx)
+        elif idx >= val_end and end <= num_time_steps:
+            splits["test"].append(idx)
+    return splits
+
+
 def build_window_time_mask(
     num_time_steps: int,
     sample_indices: list[int],
@@ -150,6 +389,55 @@ def build_window_time_mask(
         if start < end:
             mask[start:end] = True
     return mask
+
+
+OBSERVED_TIME_MASK_FILENAMES = ("observed_time_mask.npy", "valid_time_mask.npy")
+
+
+def load_observed_time_mask(
+    data_dir: str | Path,
+    num_time_steps: int,
+) -> np.ndarray | None:
+    """Load optional observed-slot mask for datasets with missing raw days."""
+    root = Path(data_dir)
+    for filename in OBSERVED_TIME_MASK_FILENAMES:
+        path = root / filename
+        if not path.exists():
+            continue
+        mask = np.load(path).astype(bool)
+        if mask.ndim != 1:
+            raise ValueError(f"{path} must be a 1-D boolean mask, got shape {mask.shape}")
+        if mask.shape[0] < num_time_steps:
+            raise ValueError(
+                f"{path} length {mask.shape[0]} is shorter than requested time steps {num_time_steps}"
+            )
+        return mask[:num_time_steps].copy()
+    return None
+
+
+def filter_split_indices_by_time_mask(
+    splits: dict[str, list[int]],
+    observed_time_mask: np.ndarray | None,
+    hist_len: int,
+    pred_horizon: int,
+) -> dict[str, list[int]]:
+    """Drop any sample whose history or target touches an unobserved slot."""
+    if observed_time_mask is None:
+        return {name: list(indices) for name, indices in splits.items()}
+    mask = np.asarray(observed_time_mask, dtype=bool)
+    window_len = int(hist_len) + int(pred_horizon)
+    filtered: dict[str, list[int]] = {}
+    for name, indices in splits.items():
+        kept: list[int] = []
+        for raw_idx in indices:
+            idx = int(raw_idx)
+            end = idx + window_len
+            if idx < 0 or end > mask.shape[0]:
+                continue
+            if bool(mask[idx:end].all()):
+                kept.append(idx)
+        filtered[name] = kept
+    return filtered
 
 
 def init_loss_dict() -> dict[str, float]:
@@ -781,12 +1069,33 @@ def train(args: argparse.Namespace) -> None:
             f"(steps={report_horizons['resolved_steps']}, slot={time_slot_minutes} min)"
         )
     split_indices = build_monthly_split_indices(time_meta, args.hist_len, args.pred_horizon)
+    observed_time_mask = load_observed_time_mask(args.data_dir, t_steps)
+    if observed_time_mask is not None:
+        raw_split_counts = {name: len(indices) for name, indices in split_indices.items()}
+        split_indices = filter_split_indices_by_time_mask(
+            split_indices,
+            observed_time_mask,
+            args.hist_len,
+            args.pred_horizon,
+        )
+        filtered_split_counts = {name: len(indices) for name, indices in split_indices.items()}
+        removed_split_counts = {
+            name: raw_split_counts[name] - filtered_split_counts[name]
+            for name in raw_split_counts
+        }
+        print(
+            "  觀測時間遮罩: "
+            f"observed={int(observed_time_mask.sum())}/{len(observed_time_mask)} slots；"
+            f"已剔除碰到缺失日的 window={removed_split_counts}"
+        )
     train_time_mask = build_window_time_mask(
         t_steps,
         split_indices["train"],
         args.hist_len,
         args.pred_horizon,
     )
+    if not np.any(train_time_mask):
+        raise ValueError("Train split is empty after applying observed_time_mask.")
     normalization_stats = build_normalization_stats(node_feat, edge_speeds, train_time_mask)
     node_feat = normalize_node_features(node_feat, normalization_stats)
     edge_speeds = normalize_speed_features(edge_speeds, normalization_stats, edge_axis=1)
@@ -838,6 +1147,13 @@ def train(args: argparse.Namespace) -> None:
         node_feat_dim=node_feat_dim,
         adaptive_topk=args.adaptive_topk,
     ).to(device)
+    if args.init_checkpoint:
+        init_checkpoint = Path(args.init_checkpoint)
+        if not init_checkpoint.exists():
+            raise FileNotFoundError(f"init checkpoint not found: {init_checkpoint}")
+        init_state = torch.load(init_checkpoint, map_location=device, weights_only=True)
+        model.load_state_dict(init_state, strict=True)
+        print(f"Loaded init checkpoint: {init_checkpoint}")
 
     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  模型參數量: {total_params:,}")
@@ -984,8 +1300,9 @@ def train(args: argparse.Namespace) -> None:
 
         # ── 記錄 ──
         elapsed = time.time() - t0
+        display_epoch = args.epoch_offset + epoch
         record = build_history_record(
-            epoch=epoch,
+            epoch=display_epoch,
             train_losses=train_losses,
             val_losses=val_losses,
             val_raw_metrics=val_raw_metrics,
@@ -1003,7 +1320,7 @@ def train(args: argparse.Namespace) -> None:
         if epoch % args.log_interval == 0 or epoch == 1:
             if args.train_task == "v":
                 print(
-                    f"[Ep {epoch:>4d}]  "
+                    f"[Ep {display_epoch:>4d}]  "
                     f"TrainV={train_losses['v']:.4f} "
                     f"(S={train_losses['speed']:.3f})  "
                     f"{val_msg}  "
@@ -1011,7 +1328,7 @@ def train(args: argparse.Namespace) -> None:
                 )
             elif args.train_task == "dc":
                 print(
-                    f"[Ep {epoch:>4d}]  "
+                    f"[Ep {display_epoch:>4d}]  "
                     f"TrainDC={train_losses['dc']:.4f} "
                     f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f})  "
                     f"{val_msg}  "
@@ -1019,7 +1336,7 @@ def train(args: argparse.Namespace) -> None:
                 )
             else:
                 print(
-                    f"[Ep {epoch:>4d}]  "
+                    f"[Ep {display_epoch:>4d}]  "
                     f"TrainDC={train_losses['dc']:.4f} "
                     f"TrainV={train_losses['v']:.4f} "
                     f"(D={train_losses['demand']:.3f} C={train_losses['supply']:.3f} S={train_losses['speed']:.3f})  "
@@ -1149,6 +1466,22 @@ def train(args: argparse.Namespace) -> None:
         if speed_report:
             print(f"Paper-aligned speed RMSE={speed_report}")
 
+    source_manifest_path = Path(args.data_dir) / "manifest.json"
+    data_source = Path(args.data_dir).name
+    source_dataset_manifest: dict[str, object] = {}
+    if source_manifest_path.exists():
+        try:
+            source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+            data_source = str(source_manifest.get("dataset_name") or data_source)
+            source_dataset_manifest = {
+                "dataset_name": source_manifest.get("dataset_name"),
+                "source_city": source_manifest.get("source_city"),
+                "schema_version": source_manifest.get("schema_version"),
+                "temporal_partition": source_manifest.get("temporal_partition", {}),
+            }
+        except (OSError, json.JSONDecodeError):
+            source_dataset_manifest = {"manifest_path": str(source_manifest_path), "read_error": True}
+
     # 儲存訓練資料元資訊（供 pipeline 使用）
     meta = {
         "num_nodes": N,
@@ -1164,6 +1497,8 @@ def train(args: argparse.Namespace) -> None:
         "adaptive_topk": args.adaptive_topk,
         "pred_horizon": args.pred_horizon,
         "hist_len": args.hist_len,
+        "epoch_offset": args.epoch_offset,
+        "init_checkpoint": args.init_checkpoint,
         "time_slot_minutes": time_slot_minutes,
         "report_horizons": report_horizons,
         "node_feat_dim": node_feat_dim,
@@ -1211,8 +1546,9 @@ def train(args: argparse.Namespace) -> None:
             "val": len(val_ds),
             "test": len(test_ds),
         },
-        "data_source": "nyc_real",
+        "data_source": data_source,
         "data_dir": args.data_dir,
+        "source_dataset_manifest": source_dataset_manifest,
     }
     with open(log_dir / "stgat_meta.json", "w") as f:
         json.dump(meta, f, indent=2)
@@ -1334,6 +1670,18 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--log-dir", type=str, default="runs")
     p.add_argument("--log-interval", type=int, default=5)
+    p.add_argument(
+        "--init-checkpoint",
+        type=str,
+        default="",
+        help="Optional model state_dict checkpoint used to initialize training.",
+    )
+    p.add_argument(
+        "--epoch-offset",
+        type=int,
+        default=0,
+        help="Epoch number offset used for continuation logs, e.g. 100 prints epochs 101..",
+    )
     p.add_argument(
         "--monitor-task",
         type=str,

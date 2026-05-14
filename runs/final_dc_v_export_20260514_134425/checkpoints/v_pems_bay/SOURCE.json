@@ -1,0 +1,22 @@
+{
+  "id": "v_pems_bay",
+  "task": "V",
+  "dataset": "PEMS-BAY",
+  "label": "PEMS-BAY speed",
+  "run_dir": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60",
+  "metrics_path": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60\\predictor_test_metrics.json",
+  "note": "best scanned PEMS-BAY speed RMSE run",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_v.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_pems_bay\\stgat_best.pt",
+      "bytes": 3595163
+    }
+  ]
+}

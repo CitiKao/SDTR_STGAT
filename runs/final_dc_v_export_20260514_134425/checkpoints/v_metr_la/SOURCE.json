@@ -1,0 +1,22 @@
+{
+  "id": "v_metr_la",
+  "task": "V",
+  "dataset": "METR-LA",
+  "label": "METR-LA speed",
+  "run_dir": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901",
+  "metrics_path": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901\\predictor_test_metrics.json",
+  "note": "best scanned METR-LA speed RMSE run",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_v.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_metr_la\\stgat_best.pt",
+      "bytes": 2842203
+    }
+  ]
+}

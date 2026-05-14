@@ -1,0 +1,28 @@
+{
+  "id": "dc_chengdu",
+  "task": "DC",
+  "dataset": "Chengdu",
+  "label": "Chengdu DC",
+  "run_dir": "runs\\chengdu_dc_full_20260513_093044\\stgat",
+  "metrics_path": "runs\\chengdu_dc_full_20260513_093044\\stgat\\predictor_test_metrics.json",
+  "note": "formal full 100-epoch STGAT; continue80 was not better on test DC",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_raw_dc.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\chengdu_dc_full_20260513_093044\\stgat\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_chengdu\\stgat_best.pt",
+      "bytes": 1395163
+    },
+    {
+      "kind": "stgat_best_raw_dc.pt",
+      "source": "runs\\chengdu_dc_full_20260513_093044\\stgat\\stgat_best_raw_dc.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_chengdu\\stgat_best_raw_dc.pt",
+      "bytes": 1396290
+    }
+  ]
+}

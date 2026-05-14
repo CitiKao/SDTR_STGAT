@@ -1,0 +1,176 @@
+﻿{
+  "created_at": "2026-05-14T13:44:25",
+  "export_dir": "runs\\final_dc_v_export_20260514_134425",
+  "report": "runs\\final_dc_v_export_20260514_134425\\ALL_DC_V_RESULTS.md",
+  "checkpoint_root": "runs\\final_dc_v_export_20260514_134425\\checkpoints",
+  "experiments": [
+    {
+      "id": "dc_nyc",
+      "task": "DC",
+      "dataset": "NYC",
+      "label": "NYC DC",
+      "run_dir": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45",
+      "metrics_path": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\stgat_best.pt",
+          "bytes": 2032539
+        },
+        {
+          "kind": "stgat_best_raw_dc.pt",
+          "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\stgat_best_raw_dc.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\stgat_best_raw_dc.pt",
+          "bytes": 2033730
+        },
+        {
+          "kind": "training_state_best.pt",
+          "source": "D:\\Citi\\STDR\\STDR_STGAT\\runs\\local_4090_dc\\autopilot_sessions\\DC_autopilot_25h_from_speed_20260430_153706\\s04_final_002_tk16_h16_lr1em3_wd1em5_hd48_b2_tfbase_s42_ep45\\training_state_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_nyc\\training_state_best.pt",
+          "bytes": 3829105
+        }
+      ],
+      "note": "final continue to 200; selected from DC_final_002_continue_to200 summary"
+    },
+    {
+      "id": "dc_shenzhen",
+      "task": "DC",
+      "dataset": "Shenzhen",
+      "label": "Shenzhen DC",
+      "run_dir": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final",
+      "metrics_path": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shenzhen",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shenzhen\\stgat_best.pt",
+          "bytes": 3014811
+        },
+        {
+          "kind": "stgat_best_raw_dc.pt",
+          "source": "runs\\shenzhen_stgat_continue_20260508_162201\\006_lr0008_bs8_h64_topk16_c15_continue_100_from_final\\stgat_best_raw_dc.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shenzhen\\stgat_best_raw_dc.pt",
+          "bytes": 3016002
+        }
+      ],
+      "note": "val-selected group6; continued to 200 epochs"
+    },
+    {
+      "id": "dc_chengdu",
+      "task": "DC",
+      "dataset": "Chengdu",
+      "label": "Chengdu DC",
+      "run_dir": "runs\\chengdu_dc_full_20260513_093044\\stgat",
+      "metrics_path": "runs\\chengdu_dc_full_20260513_093044\\stgat\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_chengdu",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\chengdu_dc_full_20260513_093044\\stgat\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_chengdu\\stgat_best.pt",
+          "bytes": 1395163
+        },
+        {
+          "kind": "stgat_best_raw_dc.pt",
+          "source": "runs\\chengdu_dc_full_20260513_093044\\stgat\\stgat_best_raw_dc.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_chengdu\\stgat_best_raw_dc.pt",
+          "bytes": 1396290
+        }
+      ],
+      "note": "formal full 100-epoch STGAT; continue80 was not better on test DC"
+    },
+    {
+      "id": "dc_shanghai",
+      "task": "DC",
+      "dataset": "Shanghai",
+      "label": "Shanghai DC",
+      "run_dir": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat",
+      "metrics_path": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shanghai",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shanghai\\stgat_best.pt",
+          "bytes": 2179803
+        },
+        {
+          "kind": "stgat_best_raw_dc.pt",
+          "source": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\stgat_best_raw_dc.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shanghai\\stgat_best_raw_dc.pt",
+          "bytes": 2180930
+        }
+      ],
+      "note": "Shanghai final selected graph; alternate graph validation runs excluded by user decision"
+    },
+    {
+      "id": "v_nyc",
+      "task": "V",
+      "dataset": "NYC V",
+      "label": "NYC V speed",
+      "run_dir": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250",
+      "metrics_path": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\stgat_best.pt",
+          "bytes": 1675661
+        },
+        {
+          "kind": "stgat_best_v.pt",
+          "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\stgat_best_v.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\stgat_best_v.pt",
+          "bytes": 1676083
+        },
+        {
+          "kind": "training_state_best.pt",
+          "source": "runs\\local_4090_v\\nyc_pemsbest_transfer_topk20_seed19_hist14_ep60_20260426_185250\\training_state_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_nyc\\training_state_best.pt",
+          "bytes": 2861329
+        }
+      ],
+      "note": "NYC local V best selected run"
+    },
+    {
+      "id": "v_metr_la",
+      "task": "V",
+      "dataset": "METR-LA",
+      "label": "METR-LA speed",
+      "run_dir": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901",
+      "metrics_path": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_metr_la",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\external_speed\\METR-LA_project_monthly_bs32_ep100_resumeable_20260420_142901\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_metr_la\\stgat_best.pt",
+          "bytes": 2842203
+        }
+      ],
+      "note": "best scanned METR-LA speed RMSE run"
+    },
+    {
+      "id": "v_pems_bay",
+      "task": "V",
+      "dataset": "PEMS-BAY",
+      "label": "PEMS-BAY speed",
+      "run_dir": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60",
+      "metrics_path": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60\\predictor_test_metrics.json",
+      "exported_dir": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_pems_bay",
+      "copied_checkpoints": [
+        {
+          "kind": "stgat_best.pt",
+          "source": "runs\\external_speed\\autopilot_sessions\\PEMS-BAY_distance_paired_autopilot_20260424_213850\\batch_10_final_best_60epoch\\final_best_repeat1_legacy_map_route_topk20_seed19_lr0p001_wd0p00001_hist14_ep60\\stgat_best.pt",
+          "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\v_pems_bay\\stgat_best.pt",
+          "bytes": 3595163
+        }
+      ],
+      "note": "best scanned PEMS-BAY speed RMSE run"
+    }
+  ]
+}

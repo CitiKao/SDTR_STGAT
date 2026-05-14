@@ -1,0 +1,28 @@
+﻿{
+  "id": "dc_shanghai",
+  "task": "DC",
+  "dataset": "Shanghai",
+  "label": "Shanghai DC",
+  "run_dir": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat",
+  "metrics_path": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\predictor_test_metrics.json",
+  "note": "Shanghai final selected graph; alternate graph validation runs excluded by user decision",
+  "checkpoint_preference": [
+    "stgat_best.pt",
+    "stgat_best_raw_dc.pt",
+    "training_state_best.pt"
+  ],
+  "copied_checkpoints": [
+    {
+      "kind": "stgat_best.pt",
+      "source": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\stgat_best.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shanghai\\stgat_best.pt",
+      "bytes": 2179803
+    },
+    {
+      "kind": "stgat_best_raw_dc.pt",
+      "source": "runs\\shanghai_stgat_continue80_20260514_065707\\stgat\\stgat_best_raw_dc.pt",
+      "exported": "runs\\final_dc_v_export_20260514_134425\\checkpoints\\dc_shanghai\\stgat_best_raw_dc.pt",
+      "bytes": 2180930
+    }
+  ]
+}
