@@ -1,0 +1,72 @@
+[
+  {
+    "priority": 1,
+    "title": "Attention-Based Spatial-Temporal Graph Neural Network With Long-Term Dependencies for Traffic Speed Prediction",
+    "venue": "IEEE T-ITS",
+    "year": 2025,
+    "doi": "10.1109/TITS.2025.3591264",
+    "model_name": "astgnn_ltd",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Long-term attention STGNN adapter with causal gated temporal blocks, RMSNorm attention, directed line-graph mixing, and auto Huber loss."
+  },
+  {
+    "priority": 2,
+    "title": "ICST-DNET: An Interpretable Causal Spatio-Temporal Diffusion Network for Traffic Speed Prediction",
+    "venue": "IEEE T-ITS",
+    "year": 2025,
+    "doi": "10.1109/TITS.2025.3574837",
+    "model_name": "icst_dnet",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Causal spatio-temporal diffusion adapter with fixed line-graph diffusion, learned causal graph generation, and time-pattern gating."
+  },
+  {
+    "priority": 3,
+    "title": "How to Accurately Forecast Highway Traffic Speed? A Self-Supervised Spatio-Temporal Bilateral Learning Network",
+    "venue": "IEEE T-ITS",
+    "year": 2026,
+    "doi": "10.1109/TITS.2026.3667856",
+    "model_name": "3s_tbln",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Self-supervised bilateral learner adapter with bidirectional recurrent encoding, directed line-graph mixing, and history reconstruction auxiliary loss."
+  },
+  {
+    "priority": 4,
+    "title": "Multi-View Spatial-Temporal Graph Convolutional Network for Traffic Prediction",
+    "venue": "IEEE T-ITS",
+    "year": 2024,
+    "doi": "10.1109/TITS.2024.3364759",
+    "model_name": "mvstgcn",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Multi-view STGCN adapter with forward line graph, reverse line graph, and learned adaptive graph views."
+  },
+  {
+    "priority": 5,
+    "title": "Contextualizing MLP-Mixers Spatiotemporally for Urban Traffic Data Forecast at Scale",
+    "venue": "IEEE T-ITS",
+    "year": 2025,
+    "doi": "10.1109/TITS.2024.3491754",
+    "model_name": "nexusqn",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Spatiotemporal MLP-Mixer adapter with edge/time embeddings, temporal mixing, channel mixing, and low-rank spatial mixing."
+  },
+  {
+    "priority": 6,
+    "title": "DAGCAN: Decoupled Adaptive Graph Convolution Attention Network for Traffic Forecasting",
+    "venue": "IEEE T-ITS",
+    "year": 2025,
+    "doi": "10.1109/TITS.2025.3531665",
+    "model_name": "dagcan",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Decoupled adaptive graph convolution attention adapter with fixed/adaptive graph branches and learned fusion."
+  },
+  {
+    "priority": 7,
+    "title": "A Task-Oriented Spatial Graph Structure Learning Method for Traffic Forecasting",
+    "venue": "IEEE T-ITS",
+    "year": 2025,
+    "doi": "10.1109/TITS.2025.3537637",
+    "model_name": "sgsl_gat_nlstm",
+    "implementation_status": "paper_inspired_adapter",
+    "notes": "Task-oriented spatial graph structure learning adapter with learned adaptive graph, GAT-style aggregation, and LSTM temporal encoding."
+  }
+]

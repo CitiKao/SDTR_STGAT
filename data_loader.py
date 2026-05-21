@@ -462,6 +462,8 @@ def load_nyc_graph_for_rl(
     edge_length_source: str = "osrm",
     speed_seed: int = 42,
     routing_locationid_max: int = 63,
+    routing_graph_mode: str = "legacy",
+    superzone_dir: str | Path | None = None,
     shapefile: str | Path | None = None,
 ) -> Dict[str, np.ndarray]:
     """
@@ -506,16 +508,62 @@ def load_nyc_graph_for_rl(
             f"邊速長度 {avg_speeds.shape[0]} 與 edge_index 邊數 {n_e} 不一致"
         )
 
-    rng = np.random.RandomState(speed_seed)
-    real_speed_profile = (
-        pred_speed_profile * rng.uniform(0.7, 1.3, size=pred_speed_profile.shape)
-    ).astype(np.float32)
-    real_speeds = real_speed_profile.mean(axis=1).astype(np.float32)
     num_time_slots = int(pred_speed_profile.shape[1])
     if profile_source == "edge_speeds_avg" and num_time_slots > 0 and 1440 % num_time_slots == 0:
         time_slot_minutes = int(1440 // num_time_slots)
     else:
         time_slot_minutes = 15
+
+    mode = str(routing_graph_mode).strip().lower()
+    if mode == "superzone":
+        from superzone_graph import aggregate_speed_profile_to_rl_edges, load_superzone_artifacts
+
+        artifacts = load_superzone_artifacts(root, superzone_dir)
+        rl_edge_index = artifacts["rl_edge_index"].astype(np.int32)
+        num_regions = int(artifacts["region_demand"].shape[1])
+        rl_adj = np.zeros((num_regions, num_regions), dtype=np.float32)
+        if rl_edge_index.size:
+            rl_adj[rl_edge_index[:, 0], rl_edge_index[:, 1]] = 1.0
+
+        pred_speed_profile = aggregate_speed_profile_to_rl_edges(
+            pred_speed_profile,
+            artifacts["rl_edge_speed_mapping_offsets"],
+            artifacts["rl_edge_speed_mapping_indices"],
+            artifacts["rl_edge_speeds_kmh"],
+        )
+        rng = np.random.RandomState(speed_seed)
+        real_speed_profile = (
+            pred_speed_profile * rng.uniform(0.7, 1.3, size=pred_speed_profile.shape)
+        ).astype(np.float32)
+
+        return {
+            "adj": rl_adj,
+            "edge_index": rl_edge_index,
+            "edge_lengths": artifacts["rl_edge_lengths"].astype(np.float32),
+            "avg_speeds": pred_speed_profile.mean(axis=1).astype(np.float32),
+            "real_speeds": real_speed_profile.mean(axis=1).astype(np.float32),
+            "pred_speed_profile": pred_speed_profile.astype(np.float32),
+            "real_speed_profile": real_speed_profile.astype(np.float32),
+            "num_time_slots": num_time_slots,
+            "time_slot_minutes": int(time_slot_minutes),
+            "full_node_indices": np.arange(num_regions, dtype=np.int32),
+            "full_to_sub": {int(i): int(i) for i in range(num_regions)},
+            "full_edge_indices": np.arange(rl_edge_index.shape[0], dtype=np.int32),
+            "zone_info": artifacts["region_info"],
+            "routing_locationid_max": 0,
+            "routing_graph_mode": "superzone",
+            "superzone_dir": str(artifacts["root"]),
+            "speed_profile_source": profile_source,
+        }
+
+    if mode != "legacy":
+        raise ValueError("routing_graph_mode must be either 'legacy' or 'superzone'")
+
+    rng = np.random.RandomState(speed_seed)
+    real_speed_profile = (
+        pred_speed_profile * rng.uniform(0.7, 1.3, size=pred_speed_profile.shape)
+    ).astype(np.float32)
+    real_speeds = real_speed_profile.mean(axis=1).astype(np.float32)
 
     if routing_locationid_max > 0:
         zone_info = load_zone_metadata(data_dir, shapefile=shapefile)
@@ -557,6 +605,8 @@ def load_nyc_graph_for_rl(
         "full_edge_indices": subgraph["full_edge_indices"],
         "zone_info": selected_zone_info,
         "routing_locationid_max": int(routing_locationid_max),
+        "routing_graph_mode": "legacy",
+        "speed_profile_source": profile_source,
     }
 
 

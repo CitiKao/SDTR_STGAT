@@ -5,3 +5,6 @@ slurm-*.out
 slurm-*.err
 runs/*
 !runs/.gitkeep
+data/external_datasets/
+data/superzones_k64/
+NYCtaxizone/
