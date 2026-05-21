@@ -29,13 +29,12 @@ $RunRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPa
 New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 
 $models = @(
-    @{ Name = "astgnn_ltd"; Label = "1/7 ASTGNN-LTD" },
-    @{ Name = "icst_dnet"; Label = "2/7 ICST-DNET" },
-    @{ Name = "3s_tbln"; Label = "3/7 3S-TBLN" },
-    @{ Name = "mvstgcn"; Label = "4/7 MVSTGCN" },
-    @{ Name = "nexusqn"; Label = "5/7 NexuSQN" },
-    @{ Name = "dagcan"; Label = "6/7 DAGCAN" },
-    @{ Name = "sgsl_gat_nlstm"; Label = "7/7 SGSL-GAT-nLSTM" }
+    @{ Name = "astgnn_ltd"; Label = "1/6 ASTGNN-LTD" },
+    @{ Name = "icst_dnet"; Label = "2/6 ICST-DNET" },
+    @{ Name = "3s_tbln"; Label = "3/6 3S-TBLN" },
+    @{ Name = "mvstgcn"; Label = "4/6 MVSTGCN" },
+    @{ Name = "nexusqn"; Label = "5/6 NexuSQN" },
+    @{ Name = "sgsl_gat_nlstm"; Label = "6/6 SGSL-GAT-nLSTM" }
 )
 
 function Format-Duration {

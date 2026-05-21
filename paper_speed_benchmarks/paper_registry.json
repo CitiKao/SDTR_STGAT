@@ -51,16 +51,6 @@
   },
   {
     "priority": 6,
-    "title": "DAGCAN: Decoupled Adaptive Graph Convolution Attention Network for Traffic Forecasting",
-    "venue": "IEEE T-ITS",
-    "year": 2025,
-    "doi": "10.1109/TITS.2025.3531665",
-    "model_name": "dagcan",
-    "implementation_status": "paper_inspired_adapter",
-    "notes": "Decoupled adaptive graph convolution attention adapter with fixed/adaptive graph branches and learned fusion."
-  },
-  {
-    "priority": 7,
     "title": "A Task-Oriented Spatial Graph Structure Learning Method for Traffic Forecasting",
     "venue": "IEEE T-ITS",
     "year": 2025,

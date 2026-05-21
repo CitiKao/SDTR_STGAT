@@ -58,7 +58,6 @@ MODEL_CHOICES = (
     "3s_tbln",
     "mvstgcn",
     "nexusqn",
-    "dagcan",
     "sgsl_gat_nlstm",
 )
 
@@ -872,60 +871,6 @@ class NexuSQNSpeedModel(nn.Module):
         return self.head(pooled)
 
 
-class DAGCANSpeedModel(nn.Module):
-    """Paper-inspired decoupled adaptive graph convolution attention adapter."""
-
-    def __init__(
-        self,
-        *,
-        edge_index: np.ndarray | None,
-        speed_adjacency: np.ndarray | None,
-        hist_len: int,
-        pred_horizon: int,
-        time_feat_dim: int,
-        hidden_dim: int,
-        adaptive_topk: int,
-        dropout: float,
-    ) -> None:
-        super().__init__()
-        resolved_adj = resolve_speed_adjacency(edge_index, speed_adjacency)
-        num_speed_items = int(resolved_adj.shape[0])
-        self.time_feat_dim = int(time_feat_dim)
-        self.temporal = nn.GRU(1 + self.time_feat_dim, hidden_dim, batch_first=True)
-        self.edge_bias = nn.Parameter(torch.zeros(num_speed_items, hidden_dim))
-        self.fixed_branch = GraphMixLayer(hidden_dim, dropout=dropout)
-        self.adaptive_branch = AdaptiveGraphMixLayer(
-            num_edges=num_speed_items,
-            hidden_dim=hidden_dim,
-            rank=max(hidden_dim // 2, 8),
-            topk=int(adaptive_topk),
-            dropout=dropout,
-        )
-        self.attn_gate = nn.Sequential(
-            nn.Linear(hidden_dim * 3, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, 2),
-        )
-        self.head = nn.Linear(hidden_dim, int(pred_horizon))
-        self.register_buffer(
-            "line_adj",
-            torch.from_numpy(resolved_adj),
-        )
-        self.hist_len = int(hist_len)
-
-    def forward(self, node_seq: torch.Tensor, speed_seq: torch.Tensor) -> torch.Tensor:
-        batch_size, num_edges, hist_len = speed_seq.shape
-        x = _edge_sequence_input(node_seq, speed_seq, self.time_feat_dim)
-        seq = x.reshape(batch_size * num_edges, hist_len, -1)
-        _out, hidden = self.temporal(seq)
-        h = hidden[-1].reshape(batch_size, num_edges, -1) + self.edge_bias.unsqueeze(0)
-        fixed = self.fixed_branch(h, self.line_adj)
-        adaptive = self.adaptive_branch(h)
-        weights = torch.softmax(self.attn_gate(torch.cat([h, fixed, adaptive], dim=-1)), dim=-1)
-        fused = weights[..., :1] * fixed + weights[..., 1:] * adaptive
-        return self.head(fused)
-
-
 class SGSLGATnLSTMSpeedModel(nn.Module):
     """Paper-inspired task-oriented spatial graph learning plus GAT-nLSTM adapter."""
 
@@ -1097,17 +1042,6 @@ def build_model(args: argparse.Namespace, bundle: DatasetBundle) -> nn.Module:
             time_feat_dim=time_feat_dim,
             hidden_dim=args.hidden_dim,
             num_layers=args.num_layers,
-            dropout=args.dropout,
-        )
-    if args.model == "dagcan":
-        return DAGCANSpeedModel(
-            edge_index=bundle.edge_index,
-            speed_adjacency=bundle.speed_adjacency,
-            hist_len=args.hist_len,
-            pred_horizon=args.pred_horizon,
-            time_feat_dim=time_feat_dim,
-            hidden_dim=args.hidden_dim,
-            adaptive_topk=args.adaptive_topk,
             dropout=args.dropout,
         )
     if args.model == "sgsl_gat_nlstm":

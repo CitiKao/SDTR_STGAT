@@ -27,7 +27,6 @@ Available runnable models:
 - `3s_tbln`: paper-inspired self-supervised bilateral learning adapter
 - `mvstgcn`: paper-inspired multi-view spatial-temporal GCN adapter
 - `nexusqn`: paper-inspired spatiotemporal MLP-Mixer adapter
-- `dagcan`: paper-inspired decoupled adaptive graph convolution attention adapter
 - `sgsl_gat_nlstm`: paper-inspired task-oriented graph learning + GAT-nLSTM adapter
 
 The listed 2024-2026 paper adapters are currently paper-inspired
